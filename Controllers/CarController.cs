@@ -5,9 +5,9 @@ using Entry.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.AspNetCore.StaticFiles;
+using System;
 using System.IO;
-
+using System.Linq;
 
 namespace Entry.Controllers;
 
@@ -30,6 +30,7 @@ public class CarsController : ControllerBase
 
         var query = _db.Cars
             .AsNoTracking()
+            .Where(x => x.IsActive)
             .Include(x => x.Images)
             .Include(x => x.Features)
             .OrderByDescending(x => x.CreatedAt);
@@ -75,7 +76,7 @@ public class CarsController : ControllerBase
             .AsNoTracking()
             .Include(x => x.Images)
             .Include(x => x.Features)
-            .FirstOrDefaultAsync(x => x.Id == id);
+            .FirstOrDefaultAsync(x => x.Id == id && x.IsActive);
 
         if (car is null) return NotFound();
 
@@ -111,6 +112,9 @@ public class CarsController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateCarDto dto)
     {
+        if (!User.IsInRole("Admin") && await IsCurrentUserBlocked())
+            return Forbid("Siz bloklanmısınız.");
+
         if (string.IsNullOrWhiteSpace(dto.Title)) return BadRequest("Title boş ola bilməz");
         if (string.IsNullOrWhiteSpace(dto.Brand)) return BadRequest("Brand boş ola bilməz");
         if (string.IsNullOrWhiteSpace(dto.Model)) return BadRequest("Model boş ola bilməz");
@@ -119,8 +123,19 @@ public class CarsController : ControllerBase
 
         var userId = User.GetUserId();
 
+        var features = (dto.Features ?? new List<CreateCarFeatureDto>())
+            .Where(f => !string.IsNullOrWhiteSpace(f.Key) && !string.IsNullOrWhiteSpace(f.Value))
+            .Select(f => new CarFeature
+            {
+                Key = f.Key.Trim(),
+                Value = f.Value.Trim(),
+                CreatedAt = DateTime.UtcNow
+            })
+            .ToList();
+
         var car = new Car
         {
+            IsActive = true,
             Title = dto.Title.Trim(),
             Brand = dto.Brand.Trim(),
             Model = dto.Model.Trim(),
@@ -128,15 +143,7 @@ public class CarsController : ControllerBase
             Price = dto.Price,
             UserId = userId,
             CreatedAt = DateTime.UtcNow,
-            Features = dto.Features
-                .Where(f => !string.IsNullOrWhiteSpace(f.Key) && !string.IsNullOrWhiteSpace(f.Value))
-                .Select(f => new CarFeature
-                {
-                    Key = f.Key.Trim(),
-                    Value = f.Value.Trim(),
-                    CreatedAt = DateTime.UtcNow
-                })
-                .ToList()
+            Features = features
         };
 
         _db.Cars.Add(car);
@@ -149,16 +156,17 @@ public class CarsController : ControllerBase
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id)
     {
-        var car = await _db.Cars.FirstOrDefaultAsync(x => x.Id == id);
+        if (!User.IsInRole("Admin") && await IsCurrentUserBlocked())
+            return Forbid("Siz bloklanmısınız.");
+
+        var car = await _db.Cars.FirstOrDefaultAsync(x => x.Id == id && x.IsActive);
         if (car is null) return NotFound();
 
         var userId = User.GetUserId();
-        var isAdmin = User.IsInRole("Admin");
-
-        if (!isAdmin && car.UserId != userId)
+        if (!User.IsInRole("Admin") && car.UserId != userId)
             return Forbid();
 
-        _db.Cars.Remove(car);
+        car.IsActive = false; // soft delete
         await _db.SaveChangesAsync();
         return NoContent();
     }
@@ -167,12 +175,15 @@ public class CarsController : ControllerBase
     [HttpPost("{id:int}/images")]
     public async Task<IActionResult> UploadImages(int id, [FromForm] List<IFormFile> files)
     {
+        if (!User.IsInRole("Admin") && await IsCurrentUserBlocked())
+            return Forbid("Siz bloklanmısınız.");
+
         if (files == null || files.Count == 0)
             return BadRequest("Heç bir şəkil göndərilməyib.");
 
         var car = await _db.Cars
             .Include(c => c.Images)
-            .FirstOrDefaultAsync(c => c.Id == id);
+            .FirstOrDefaultAsync(c => c.Id == id && c.IsActive);
 
         if (car is null) return NotFound("Elan tapılmadı.");
 
@@ -182,22 +193,29 @@ public class CarsController : ControllerBase
 
         var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
         var carFolder = Path.Combine(webRoot, "uploads", "cars", car.Id.ToString());
-
         Directory.CreateDirectory(carFolder);
 
         var nextOrder = car.Images.Any() ? car.Images.Max(i => i.Order) + 1 : 0;
-
         var hasMain = car.Images.Any(i => i.IsMain);
 
         foreach (var file in files)
         {
-            if (file.Length <= 0) continue;
+            if (file is null || file.Length <= 0) continue;
+
+            // 5MB limit
+            if (file.Length > 5 * 1024 * 1024)
+                return BadRequest("Şəkil 5MB-dan böyük ola bilməz.");
 
             if (!file.ContentType.StartsWith("image/"))
                 return BadRequest("Yalnız şəkil faylları qəbul olunur.");
 
             var ext = Path.GetExtension(file.FileName);
             if (string.IsNullOrWhiteSpace(ext)) ext = ".jpg";
+
+            ext = ext.ToLowerInvariant();
+            var allowed = new[] { ".jpg", ".jpeg", ".png", ".webp" };
+            if (!allowed.Contains(ext))
+                return BadRequest("Yalnız jpg, jpeg, png, webp qəbul olunur.");
 
             var fileName = $"{Guid.NewGuid():N}{ext}";
             var fullPath = Path.Combine(carFolder, fileName);
@@ -213,7 +231,7 @@ public class CarsController : ControllerBase
             {
                 CarId = car.Id,
                 ImageUrl = url,
-                IsMain = !hasMain,  
+                IsMain = !hasMain,
                 Order = nextOrder++
             };
 
@@ -236,20 +254,19 @@ public class CarsController : ControllerBase
             })
             .ToListAsync();
 
-        return Ok(new
-        {
-            carId = car.Id,
-            images
-        });
+        return Ok(new { carId = car.Id, images });
     }
 
     [Authorize]
     [HttpPut("{id:int}/images/{imageId:int}/main")]
     public async Task<IActionResult> SetMainImage(int id, int imageId)
     {
+        if (!User.IsInRole("Admin") && await IsCurrentUserBlocked())
+            return Forbid("Siz bloklanmısınız.");
+
         var car = await _db.Cars
             .Include(c => c.Images)
-            .FirstOrDefaultAsync(c => c.Id == id);
+            .FirstOrDefaultAsync(c => c.Id == id && c.IsActive);
 
         if (car is null) return NotFound("Elan tapılmadı.");
 
@@ -271,9 +288,12 @@ public class CarsController : ControllerBase
     [HttpDelete("{id:int}/images/{imageId:int}")]
     public async Task<IActionResult> DeleteImage(int id, int imageId)
     {
+        if (!User.IsInRole("Admin") && await IsCurrentUserBlocked())
+            return Forbid("Siz bloklanmısınız.");
+
         var car = await _db.Cars
             .Include(c => c.Images)
-            .FirstOrDefaultAsync(c => c.Id == id);
+            .FirstOrDefaultAsync(c => c.Id == id && c.IsActive);
 
         if (car is null) return NotFound("Elan tapılmadı.");
 
@@ -284,7 +304,12 @@ public class CarsController : ControllerBase
         var img = car.Images.FirstOrDefault(i => i.Id == imageId);
         if (img is null) return NotFound("Şəkil tapılmadı.");
 
-        var physicalPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", img.ImageUrl.TrimStart('/').Replace("/", Path.DirectorySeparatorChar.ToString()));
+        var physicalPath = Path.Combine(
+            Directory.GetCurrentDirectory(),
+            "wwwroot",
+            img.ImageUrl.TrimStart('/').Replace("/", Path.DirectorySeparatorChar.ToString())
+        );
+
         if (System.IO.File.Exists(physicalPath))
             System.IO.File.Delete(physicalPath);
 
@@ -308,11 +333,13 @@ public class CarsController : ControllerBase
         return NoContent();
     }
 
-
     [Authorize]
     [HttpPut("{id:int}")]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateCarDto dto)
     {
+        if (!User.IsInRole("Admin") && await IsCurrentUserBlocked())
+            return Forbid("Siz bloklanmısınız.");
+
         if (string.IsNullOrWhiteSpace(dto.Title)) return BadRequest("Title boş ola bilməz");
         if (string.IsNullOrWhiteSpace(dto.Brand)) return BadRequest("Brand boş ola bilməz");
         if (string.IsNullOrWhiteSpace(dto.Model)) return BadRequest("Model boş ola bilməz");
@@ -321,7 +348,7 @@ public class CarsController : ControllerBase
 
         var car = await _db.Cars
             .Include(c => c.Features)
-            .FirstOrDefaultAsync(c => c.Id == id);
+            .FirstOrDefaultAsync(c => c.Id == id && c.IsActive);
 
         if (car is null) return NotFound("Elan tapılmadı.");
 
@@ -337,7 +364,7 @@ public class CarsController : ControllerBase
 
         _db.CarFeatures.RemoveRange(car.Features);
 
-        car.Features = dto.Features
+        car.Features = (dto.Features ?? new List<CreateCarFeatureDto>())
             .Where(f => !string.IsNullOrWhiteSpace(f.Key) && !string.IsNullOrWhiteSpace(f.Value))
             .Select(f => new CarFeature
             {
@@ -349,20 +376,22 @@ public class CarsController : ControllerBase
             .ToList();
 
         await _db.SaveChangesAsync();
-        return NoContent(); 
+        return NoContent();
     }
-
 
     [Authorize]
     [HttpPut("{id:int}/images/reorder")]
     public async Task<IActionResult> ReorderImages(int id, [FromBody] ReorderImagesDto dto)
     {
+        if (!User.IsInRole("Admin") && await IsCurrentUserBlocked())
+            return Forbid("Siz bloklanmısınız.");
+
         if (dto.ImageIds == null || dto.ImageIds.Count == 0)
             return BadRequest("ImageIds boş ola bilməz.");
 
         var car = await _db.Cars
             .Include(c => c.Images)
-            .FirstOrDefaultAsync(c => c.Id == id);
+            .FirstOrDefaultAsync(c => c.Id == id && c.IsActive);
 
         if (car is null) return NotFound("Elan tapılmadı.");
 
@@ -379,15 +408,15 @@ public class CarsController : ControllerBase
             var imageId = dto.ImageIds[idx];
             var img = car.Images.First(i => i.Id == imageId);
             img.Order = idx;
-
         }
 
         await _db.SaveChangesAsync();
         return NoContent();
     }
 
-
-
-
-
+    private async Task<bool> IsCurrentUserBlocked()
+    {
+        var userId = User.GetUserId();
+        return await _db.Users.AnyAsync(u => u.Id == userId && u.IsBlocked);
+    }
 }
