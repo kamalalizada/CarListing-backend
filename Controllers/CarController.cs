@@ -379,6 +379,7 @@ public class CarsController : ControllerBase
             var imageId = dto.ImageIds[idx];
             var img = car.Images.First(i => i.Id == imageId);
             img.Order = idx;
+
         }
 
         await _db.SaveChangesAsync();
