@@ -2,12 +2,10 @@
 using Entry.Data;
 using Entry.Dto;
 using Entry.Extensions;
+using Entry.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using System;
-using System.IO;
-using System.Linq;
 
 namespace Entry.Controllers;
 
@@ -16,10 +14,13 @@ namespace Entry.Controllers;
 public class CarsController : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly IImageStorageService _imageStorage;
 
-    public CarsController(AppDbContext db)
+
+    public CarsController(AppDbContext db, IImageStorageService imageStorage)
     {
         _db = db;
+        _imageStorage = imageStorage;
     }
 
     [HttpGet]
@@ -115,12 +116,6 @@ public class CarsController : ControllerBase
         if (!User.IsInRole("Admin") && await IsCurrentUserBlocked())
             return Forbid("Siz bloklanmısınız.");
 
-        if (string.IsNullOrWhiteSpace(dto.Title)) return BadRequest("Title boş ola bilməz");
-        if (string.IsNullOrWhiteSpace(dto.Brand)) return BadRequest("Brand boş ola bilməz");
-        if (string.IsNullOrWhiteSpace(dto.Model)) return BadRequest("Model boş ola bilməz");
-        if (dto.Year < 1950 || dto.Year > DateTime.UtcNow.Year + 1) return BadRequest("Year düzgün deyil");
-        if (dto.Price <= 0) return BadRequest("Price 0-dan böyük olmalıdır");
-
         var userId = User.GetUserId();
 
         var features = (dto.Features ?? new List<CreateCarFeatureDto>())
@@ -191,10 +186,6 @@ public class CarsController : ControllerBase
         var isAdmin = User.IsInRole("Admin");
         if (!isAdmin && car.UserId != userId) return Forbid();
 
-        var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-        var carFolder = Path.Combine(webRoot, "uploads", "cars", car.Id.ToString());
-        Directory.CreateDirectory(carFolder);
-
         var nextOrder = car.Images.Any() ? car.Images.Max(i => i.Order) + 1 : 0;
         var hasMain = car.Images.Any(i => i.IsMain);
 
@@ -213,24 +204,24 @@ public class CarsController : ControllerBase
             if (string.IsNullOrWhiteSpace(ext)) ext = ".jpg";
 
             ext = ext.ToLowerInvariant();
-            var allowed = new[] { ".jpg", ".jpeg", ".png", ".webp" };
+            var allowed = new[] { ".jpg", ".jpeg", ".png", ".webp", ".avif" };
             if (!allowed.Contains(ext))
-                return BadRequest("Yalnız jpg, jpeg, png, webp qəbul olunur.");
+                return BadRequest("Yalnız jpg, jpeg, png, avif  webp qəbul olunur.");
 
-            var fileName = $"{Guid.NewGuid():N}{ext}";
-            var fullPath = Path.Combine(carFolder, fileName);
-
-            await using (var stream = new FileStream(fullPath, FileMode.Create))
-            {
-                await file.CopyToAsync(stream);
-            }
-
-            var url = $"/uploads/cars/{car.Id}/{fileName}";
+            await using var stream = file.OpenReadStream();
+            var upload = await _imageStorage.UploadAsync(
+                car.Id,
+                stream,
+                file.Length,
+                ext,
+                file.ContentType,
+                cancellationToken: HttpContext.RequestAborted);
 
             var img = new CarImage
             {
                 CarId = car.Id,
-                ImageUrl = url,
+                ImageUrl = upload.ImageUrl,
+                ObjectKey = upload.ObjectKey,
                 IsMain = !hasMain,
                 Order = nextOrder++
             };
@@ -283,7 +274,6 @@ public class CarsController : ControllerBase
         await _db.SaveChangesAsync();
         return NoContent();
     }
-
     [Authorize]
     [HttpDelete("{id:int}/images/{imageId:int}")]
     public async Task<IActionResult> DeleteImage(int id, int imageId)
@@ -304,19 +294,16 @@ public class CarsController : ControllerBase
         var img = car.Images.FirstOrDefault(i => i.Id == imageId);
         if (img is null) return NotFound("Şəkil tapılmadı.");
 
-        var physicalPath = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            "wwwroot",
-            img.ImageUrl.TrimStart('/').Replace("/", Path.DirectorySeparatorChar.ToString())
-        );
+        var objectKey = img.ObjectKey ?? _imageStorage.TryGetObjectKeyFromUrl(img.ImageUrl);
+        await _imageStorage.DeleteAsync(objectKey, HttpContext.RequestAborted);
 
-        if (System.IO.File.Exists(physicalPath))
-            System.IO.File.Delete(physicalPath);
+        var wasMain = img.IsMain;
 
         _db.CarImages.Remove(img);
         await _db.SaveChangesAsync();
 
-        if (img.IsMain)
+        // Əgər main şəkil silinibsə, yenisini main et
+        if (wasMain)
         {
             var first = await _db.CarImages
                 .Where(i => i.CarId == id)
@@ -333,18 +320,13 @@ public class CarsController : ControllerBase
         return NoContent();
     }
 
+
     [Authorize]
     [HttpPut("{id:int}")]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateCarDto dto)
     {
         if (!User.IsInRole("Admin") && await IsCurrentUserBlocked())
             return Forbid("Siz bloklanmısınız.");
-
-        if (string.IsNullOrWhiteSpace(dto.Title)) return BadRequest("Title boş ola bilməz");
-        if (string.IsNullOrWhiteSpace(dto.Brand)) return BadRequest("Brand boş ola bilməz");
-        if (string.IsNullOrWhiteSpace(dto.Model)) return BadRequest("Model boş ola bilməz");
-        if (dto.Year < 1950 || dto.Year > DateTime.UtcNow.Year + 1) return BadRequest("Year düzgün deyil");
-        if (dto.Price <= 0) return BadRequest("Price 0-dan böyük olmalıdır");
 
         var car = await _db.Cars
             .Include(c => c.Features)

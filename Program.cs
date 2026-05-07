@@ -1,28 +1,54 @@
 ﻿using Entry.Data;
 using Entry.Concrete;
+using Entry.Services;
+using Business.Concrete;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
-using Org.BouncyCastle.Crypto.Generators;
-
 
 var builder = WebApplication.CreateBuilder(args);
 
-
+// DB
 builder.Services.AddDbContext<AppDbContext>(opt =>
     opt.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-
+// JWT config
 var jwtKey = builder.Configuration["Jwt:Key"];
 var jwtIssuer = builder.Configuration["Jwt:Issuer"];
+var adminPassword = builder.Configuration["Admin:Password"];
 
 if (string.IsNullOrWhiteSpace(jwtKey) || string.IsNullOrWhiteSpace(jwtIssuer))
     throw new Exception("Jwt config tapılmadı. appsettings.json-da Jwt:Key və Jwt:Issuer olmalıdır.");
 
-builder.Services.AddScoped<Business.Concrete.TokenService>();
+if (IsPlaceholderSecret(jwtKey))
+    throw new Exception("Jwt:Key placeholder ola bilməz. Real dəyəri Jwt__Key environment variable və ya user-secrets ilə ver.");
 
+if (string.IsNullOrWhiteSpace(adminPassword))
+    throw new Exception("Admin password tapılmadı. Admin:Password environment variable və ya development config ilə verilməlidir.");
+
+// Services
+builder.Services.AddScoped<Business.Concrete.TokenService>();
+builder.Services.Configure<MinioOptions>(builder.Configuration.GetSection("Minio"));
+builder.Services.AddScoped<IImageStorageService, MinioImageStorageService>();
+builder.Services.AddScoped<LocalImageMigrationService>();
+
+// CORS (Angular)
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("Frontend", policy =>
+    {
+        policy
+            .WithOrigins("http://localhost:4200")
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
+    });
+});
+
+// Auth
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(opt =>
@@ -34,24 +60,19 @@ builder.Services
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
             ValidIssuer = jwtIssuer,
-            IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(jwtKey))
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
         };
     });
 
 builder.Services.AddAuthorization();
 
-
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
+// Swagger + Bearer
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo
-    {
-        Title = "CarListing API",
-        Version = "v1"
-    });
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "CarListing API", Version = "v1" });
 
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
@@ -81,32 +102,44 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-
+// ✅ DB migrate + admin seed
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
     await db.Database.MigrateAsync();
 
-    
-    var adminExists = await db.Users.AnyAsync(u => u.Role == "Admin");
-    if (!adminExists)
+    var admin = await db.Users.FirstOrDefaultAsync(u => u.Role == "Admin");
+    if (admin is null)
     {
-        var admin = new User
+        admin = new User
         {
             Username = "admin",
             Email = "admin@local.test",
             Role = "Admin",
             IsBlocked = false,
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin123!")
+            PasswordHash = PasswordService.Hash(adminPassword)
         };
 
         db.Users.Add(admin);
         await db.SaveChangesAsync();
     }
+    else if (!IsPbkdf2PasswordHash(admin.PasswordHash))
+    {
+        admin.PasswordHash = PasswordService.Hash(adminPassword);
+        await db.SaveChangesAsync();
+    }
 }
 
+if (args.Contains("--migrate-local-images", StringComparer.OrdinalIgnoreCase))
+{
+    using var scope = app.Services.CreateScope();
+    var migration = scope.ServiceProvider.GetRequiredService<LocalImageMigrationService>();
+    var migrated = await migration.MigrateAsync();
+    Console.WriteLine($"Migrated {migrated} local car images to MinIO.");
+    return;
+}
 
+// Swagger
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -114,11 +147,42 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-app.UseStaticFiles();
 
+// ✅ Static files (.avif/.webp mapping) — 404 problemini bu həll edir
+var provider = new FileExtensionContentTypeProvider();
+provider.Mappings[".webp"] = "image/webp";
+provider.Mappings[".avif"] = "image/avif";
+
+app.UseStaticFiles(new StaticFileOptions
+{
+    ContentTypeProvider = provider
+});
+
+// CORS
+app.UseCors("Frontend");
+
+// Auth
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
 
 app.Run();
+
+static bool IsPbkdf2PasswordHash(string passwordHash)
+{
+    if (string.IsNullOrWhiteSpace(passwordHash))
+        return false;
+
+    var parts = passwordHash.Split('.');
+    return parts.Length == 3 && int.TryParse(parts[0], out _);
+}
+
+static bool IsPlaceholderSecret(string? value)
+{
+    if (string.IsNullOrWhiteSpace(value))
+        return true;
+
+    return value.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase) ||
+           value.Contains("SUPER_SECRET", StringComparison.OrdinalIgnoreCase);
+}

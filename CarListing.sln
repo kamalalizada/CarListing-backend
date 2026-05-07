@@ -4,12 +4,23 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 VisualStudioVersion = 17.11.35327.3
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "wCarListing", "wCarListing.csproj", "{04564F3B-C527-44C0-8831-9B4842C2E068}"
+	ProjectSection(ProjectDependencies) = postProject
+		{4566FD02-A0CB-4DB9-8FE5-47689600D514} = {4566FD02-A0CB-4DB9-8FE5-47689600D514}
+		{281A1112-180A-4E6A-8DC7-7DFA10C3FAEB} = {281A1112-180A-4E6A-8DC7-7DFA10C3FAEB}
+		{55217C23-466D-4CC0-A693-43B8334ECC5D} = {55217C23-466D-4CC0-A693-43B8334ECC5D}
+	EndProjectSection
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Entry", "..\Entry\Entry.csproj", "{4566FD02-A0CB-4DB9-8FE5-47689600D514}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Entry", "Entry\Entry.csproj", "{4566FD02-A0CB-4DB9-8FE5-47689600D514}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DataAccess", "..\DataAccess\DataAccess.csproj", "{281A1112-180A-4E6A-8DC7-7DFA10C3FAEB}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DataAccess", "DataAccess\DataAccess.csproj", "{281A1112-180A-4E6A-8DC7-7DFA10C3FAEB}"
+	ProjectSection(ProjectDependencies) = postProject
+		{4566FD02-A0CB-4DB9-8FE5-47689600D514} = {4566FD02-A0CB-4DB9-8FE5-47689600D514}
+	EndProjectSection
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Business", "..\Business\Business.csproj", "{55217C23-466D-4CC0-A693-43B8334ECC5D}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Business", "Business\Business.csproj", "{55217C23-466D-4CC0-A693-43B8334ECC5D}"
+	ProjectSection(ProjectDependencies) = postProject
+		{4566FD02-A0CB-4DB9-8FE5-47689600D514} = {4566FD02-A0CB-4DB9-8FE5-47689600D514}
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

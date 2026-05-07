@@ -4,7 +4,6 @@ using Entry.Data;
 using Entry.Dto;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Protocols.WSIdentity;
 using TokenService = Business.Concrete.TokenService;
 
 namespace Entry.Controllers;
