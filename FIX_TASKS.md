@@ -11,12 +11,10 @@ Bu faylda `CODE_ANALYSIS.md`-de tapilan problemleri bir-bir, kicik tasklara bolu
 - yoxlama neticesi
 
 ## Status izahi
-
 - `TODO`: hele baslanmayib
 - `IN PROGRESS`: hazirda uzerinde islenir
 - `DONE`: duzeldilib ve yoxlanib
 - `BLOCKED`: senden melumat ve ya icaze lazimdir
-
 ## Problem 1: Build ugursuz qayidir
 
 Status: `DONE WITH WORKAROUND`
@@ -294,8 +292,7 @@ dotnet ef migrations script --project DataAccess\DataAccess.csproj --startup-pro
 - EF migration list artiq yeni migration-i gosterir:
   `20260507175358_InitialCreate`
 - EF script generation ugurlu oldu ve SQL script tam yarandi.
-- `sqllocaldb start MSSQLLocalDB` ugurlu oldu.
-- `dotnet ef database drop` ve `dotnet ef database update` ugurlu oldu.
+- `dotnet ef database update` migration logic sebebile yox, lokal SQL Server LocalDB instance problemi sebebile fail oldu.
 
 Movcud local DB varsa ve LocalDB/SQL instance saglamdirsa, reset etmek ucun:
 
@@ -306,78 +303,25 @@ dotnet ef database update --project DataAccess\DataAccess.csproj --startup-proje
 
 ## Problem 5: DTO validation zeifdir
 
-Status: `DONE`
+Status: `TODO`
 
 ### Kicik tasklar
 
-- [x] Register/Login null yoxlamasini duzeltmek.
-- [x] Car create/update validation-larini DataAnnotations ile guclendirmek.
-- [x] Controller daxilindeki tekrar validation kodunu azaltmaq.
-- [x] Build ile yoxlamaq.
-
-### Ne edirik
-
-Request DTO-larina `DataAnnotations` elave etdik ki, `[ApiController]` invalid payload-lari action-a girmeden avtomatik saxlasin.
-
-### Edilen deyisiklikler
-
-- `RegisterDto` ucun `Required`, `StringLength`, `EmailAddress` elave edildi.
-- `LoginDto` ucun `Required`, `EmailAddress` elave edildi.
-- `CreateCarDto` ve `UpdateCarDto` ucun `Required`, `StringLength`, `Range` elave edildi.
-- `CreateCarFeatureDto` ucun `Required` ve `StringLength` elave edildi.
-- `AuthController` icinde `Trim()` null riski yaradan manual check bloklari cixarildi, email normalization `ToLowerInvariant()` ile saxlanildi.
-- `CarsController` icinde create/update ucun tekrar yazilan string/year/price manual validation-lari cixarildi.
-
-### Niye edirik
-
-Evvel `Trim()` validation-dan once cagrildigi ucun null request-lerde exception riski var idi. Indi bu yoxlama framework seviyyesinde aparilir ve controller daha temiz qalir.
-
-### Yoxlama neticesi
-
-`.\build.cmd -v:minimal` ugurla kecdi.
+- [ ] Register/Login null yoxlamasini duzeltmek.
+- [ ] Car create/update validation-larini DataAnnotations ile guclendirmek.
+- [ ] Controller daxilindeki tekrar validation kodunu azaltmaq.
+- [ ] Bad request cavablarini yoxlamaq.
 
 ## Problem 6: Image upload validation zeifdir
 
-Status: `DONE`
+Status: `TODO`
 
 ### Kicik tasklar
 
-- [x] ContentType ve extension yoxlamasini saxlamaq.
-- [x] Magic bytes yoxlamasi elave etmek.
-- [x] JPG/PNG/WebP/AVIF ucun minimal header yoxlamasi yazmaq.
-- [x] Build ile yoxlamaq.
-
-### Problem
-
-Evvel upload zamani faylin sekil olub-olmamasini esasen iki melumatla yoxlayirdiq:
-
-- `ContentType`, meselen `image/jpeg`
-- fayl extension-u, meselen `.jpg`
-
-Bu melumatlar client terefinden gonderildiyi ucun saxtalasdirila biler. Meselen, ziyanli ve ya adi text faylina `.jpg` adi verib `ContentType=image/jpeg` gondermek mumkundur.
-
-### Ne edirik
-
-Faylin ozunun ilk baytlarini oxuyub real format imzasini yoxlayiriq. Buna magic bytes/header yoxlamasi deyilir.
-
-Deyerli formatlar:
-
-- JPG/JPEG: `FF D8 FF`
-- PNG: PNG signature
-- WebP: `RIFF....WEBP`
-- AVIF: ISO BMFF `ftyp` box icinde `avif` ve ya `avis` brand
-
-### Edilen deyisiklikler
-
-- `Services/ImageFileValidator.cs` elave edildi.
-- `ImageFileValidator.IsAllowedExtension` ile allowed extension siyahisi merkezilesdirildi.
-- `ImageFileValidator.HasValidImageSignatureAsync` ile stream-in ilk baytlari yoxlanildi.
-- `CarsController.UploadImages` icinde upload-dan once magic bytes validation elave edildi.
-- Stream yoxlamadan sonra baslangic position-a qaytarilir ki, MinIO-ya tam fayl yuklensin.
-
-### Yoxlama neticesi
-
-`.\build.cmd -v:minimal` ugurla kecdi.
+- [ ] ContentType ve extension yoxlamasini saxlamaq.
+- [ ] Magic bytes yoxlamasi elave etmek.
+- [ ] JPG/PNG/WebP/AVIF ucun minimal header yoxlamasi yazmaq.
+- [ ] Test upload hallari yazmaq.
 
 ## Problem 7: Reorder duplicate id yoxlamir
 

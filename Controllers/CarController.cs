@@ -116,6 +116,12 @@ public class CarsController : ControllerBase
         if (!User.IsInRole("Admin") && await IsCurrentUserBlocked())
             return Forbid("Siz bloklanmısınız.");
 
+        if (string.IsNullOrWhiteSpace(dto.Title)) return BadRequest("Title boş ola bilməz");
+        if (string.IsNullOrWhiteSpace(dto.Brand)) return BadRequest("Brand boş ola bilməz");
+        if (string.IsNullOrWhiteSpace(dto.Model)) return BadRequest("Model boş ola bilməz");
+        if (dto.Year < 1950 || dto.Year > DateTime.UtcNow.Year + 1) return BadRequest("Year düzgün deyil");
+        if (dto.Price <= 0) return BadRequest("Price 0-dan böyük olmalıdır");
+
         var userId = User.GetUserId();
 
         var features = (dto.Features ?? new List<CreateCarFeatureDto>())
@@ -197,25 +203,18 @@ public class CarsController : ControllerBase
             if (file.Length > 5 * 1024 * 1024)
                 return BadRequest("Şəkil 5MB-dan böyük ola bilməz.");
 
-            if (!file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+            if (!file.ContentType.StartsWith("image/"))
                 return BadRequest("Yalnız şəkil faylları qəbul olunur.");
 
             var ext = Path.GetExtension(file.FileName);
             if (string.IsNullOrWhiteSpace(ext)) ext = ".jpg";
 
             ext = ext.ToLowerInvariant();
-            if (!ImageFileValidator.IsAllowedExtension(ext))
-                return BadRequest("Yalnız jpg, jpeg, png, avif və webp qəbul olunur.");
+            var allowed = new[] { ".jpg", ".jpeg", ".png", ".webp", ".avif" };
+            if (!allowed.Contains(ext))
+                return BadRequest("Yalnız jpg, jpeg, png, avif  webp qəbul olunur.");
 
             await using var stream = file.OpenReadStream();
-            var hasValidSignature = await ImageFileValidator.HasValidImageSignatureAsync(
-                stream,
-                ext,
-                HttpContext.RequestAborted);
-
-            if (!hasValidSignature)
-                return BadRequest("Şəkil faylının formatı düzgün deyil.");
-
             var upload = await _imageStorage.UploadAsync(
                 car.Id,
                 stream,
@@ -283,6 +282,7 @@ public class CarsController : ControllerBase
     }
     [Authorize]
     [HttpDelete("{id:int}/images/{imageId:int}")]
+    
     public async Task<IActionResult> DeleteImage(int id, int imageId)
     {
         if (!User.IsInRole("Admin") && await IsCurrentUserBlocked())
@@ -334,6 +334,12 @@ public class CarsController : ControllerBase
     {
         if (!User.IsInRole("Admin") && await IsCurrentUserBlocked())
             return Forbid("Siz bloklanmısınız.");
+
+        if (string.IsNullOrWhiteSpace(dto.Title)) return BadRequest("Title boş ola bilməz");
+        if (string.IsNullOrWhiteSpace(dto.Brand)) return BadRequest("Brand boş ola bilməz");
+        if (string.IsNullOrWhiteSpace(dto.Model)) return BadRequest("Model boş ola bilməz");
+        if (dto.Year < 1950 || dto.Year > DateTime.UtcNow.Year + 1) return BadRequest("Year düzgün deyil");
+        if (dto.Price <= 0) return BadRequest("Price 0-dan böyük olmalıdır");
 
         var car = await _db.Cars
             .Include(c => c.Features)
