@@ -25,12 +25,7 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> Register(RegisterDto dto)
     {
         dto.Username = dto.Username.Trim();
-        dto.Email = dto.Email.Trim().ToLower();
-
-        if (string.IsNullOrWhiteSpace(dto.Username) ||
-            string.IsNullOrWhiteSpace(dto.Email) ||
-            string.IsNullOrWhiteSpace(dto.Password))
-            return BadRequest("Username, Email, Password boş ola bilməz.");
+        dto.Email = dto.Email.Trim().ToLowerInvariant();
 
         var exists = await _db.Users.AnyAsync(u => u.Email == dto.Email || u.Username == dto.Username);
         if (exists) return BadRequest("Bu email və ya username artıq mövcuddur.");
@@ -55,7 +50,7 @@ public class AuthController : ControllerBase
     [HttpPost("login")]
     public async Task<IActionResult> Login(LoginDto dto)
     {
-        var email = dto.Email.Trim().ToLower();
+        var email = dto.Email.Trim().ToLowerInvariant();
 
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Email == email);
         if (user is null) return Unauthorized("Email və ya şifrə yanlışdır.");
