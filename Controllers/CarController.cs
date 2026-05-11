@@ -197,18 +197,25 @@ public class CarsController : ControllerBase
             if (file.Length > 5 * 1024 * 1024)
                 return BadRequest("Şəkil 5MB-dan böyük ola bilməz.");
 
-            if (!file.ContentType.StartsWith("image/"))
+            if (!file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
                 return BadRequest("Yalnız şəkil faylları qəbul olunur.");
 
             var ext = Path.GetExtension(file.FileName);
             if (string.IsNullOrWhiteSpace(ext)) ext = ".jpg";
 
             ext = ext.ToLowerInvariant();
-            var allowed = new[] { ".jpg", ".jpeg", ".png", ".webp", ".avif" };
-            if (!allowed.Contains(ext))
-                return BadRequest("Yalnız jpg, jpeg, png, avif  webp qəbul olunur.");
+            if (!ImageFileValidator.IsAllowedExtension(ext))
+                return BadRequest("Yalnız jpg, jpeg, png, avif və webp qəbul olunur.");
 
             await using var stream = file.OpenReadStream();
+            var hasValidSignature = await ImageFileValidator.HasValidImageSignatureAsync(
+                stream,
+                ext,
+                HttpContext.RequestAborted);
+
+            if (!hasValidSignature)
+                return BadRequest("Şəkil faylının formatı düzgün deyil.");
+
             var upload = await _imageStorage.UploadAsync(
                 car.Id,
                 stream,

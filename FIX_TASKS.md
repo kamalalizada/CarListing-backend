@@ -338,14 +338,46 @@ Evvel `Trim()` validation-dan once cagrildigi ucun null request-lerde exception 
 
 ## Problem 6: Image upload validation zeifdir
 
-Status: `TODO`
+Status: `DONE`
 
 ### Kicik tasklar
 
-- [ ] ContentType ve extension yoxlamasini saxlamaq.
-- [ ] Magic bytes yoxlamasi elave etmek.
-- [ ] JPG/PNG/WebP/AVIF ucun minimal header yoxlamasi yazmaq.
-- [ ] Test upload hallari yazmaq.
+- [x] ContentType ve extension yoxlamasini saxlamaq.
+- [x] Magic bytes yoxlamasi elave etmek.
+- [x] JPG/PNG/WebP/AVIF ucun minimal header yoxlamasi yazmaq.
+- [x] Build ile yoxlamaq.
+
+### Problem
+
+Evvel upload zamani faylin sekil olub-olmamasini esasen iki melumatla yoxlayirdiq:
+
+- `ContentType`, meselen `image/jpeg`
+- fayl extension-u, meselen `.jpg`
+
+Bu melumatlar client terefinden gonderildiyi ucun saxtalasdirila biler. Meselen, ziyanli ve ya adi text faylina `.jpg` adi verib `ContentType=image/jpeg` gondermek mumkundur.
+
+### Ne edirik
+
+Faylin ozunun ilk baytlarini oxuyub real format imzasini yoxlayiriq. Buna magic bytes/header yoxlamasi deyilir.
+
+Deyerli formatlar:
+
+- JPG/JPEG: `FF D8 FF`
+- PNG: PNG signature
+- WebP: `RIFF....WEBP`
+- AVIF: ISO BMFF `ftyp` box icinde `avif` ve ya `avis` brand
+
+### Edilen deyisiklikler
+
+- `Services/ImageFileValidator.cs` elave edildi.
+- `ImageFileValidator.IsAllowedExtension` ile allowed extension siyahisi merkezilesdirildi.
+- `ImageFileValidator.HasValidImageSignatureAsync` ile stream-in ilk baytlari yoxlanildi.
+- `CarsController.UploadImages` icinde upload-dan once magic bytes validation elave edildi.
+- Stream yoxlamadan sonra baslangic position-a qaytarilir ki, MinIO-ya tam fayl yuklensin.
+
+### Yoxlama neticesi
+
+`.\build.cmd -v:minimal` ugurla kecdi.
 
 ## Problem 7: Reorder duplicate id yoxlamir
 
