@@ -2,105 +2,119 @@ namespace Entry.Services;
 
 public static class ImageFileValidator
 {
-    private const int HeaderLength = 32;
+    private static readonly HashSet<string> AllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".webp",
+        ".avif"
+    };
 
     public static bool IsAllowedExtension(string extension)
     {
-        return extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".png", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".webp", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".avif", StringComparison.OrdinalIgnoreCase);
+        return AllowedExtensions.Contains(NormalizeExtension(extension));
     }
 
-    public static async Task<bool> HasValidImageSignatureAsync(
-        Stream stream,
-        string extension,
-        CancellationToken cancellationToken = default)
+    public static bool IsAllowedContentType(string contentType)
     {
-        if (!stream.CanRead)
+        if (string.IsNullOrWhiteSpace(contentType))
             return false;
 
-        var originalPosition = stream.CanSeek ? stream.Position : 0;
-        var header = new byte[HeaderLength];
-        var bytesRead = await stream.ReadAsync(header.AsMemory(0, header.Length), cancellationToken);
+        return contentType.Equals("image/jpeg", StringComparison.OrdinalIgnoreCase) ||
+               contentType.Equals("image/png", StringComparison.OrdinalIgnoreCase) ||
+               contentType.Equals("image/webp", StringComparison.OrdinalIgnoreCase) ||
+               contentType.Equals("image/avif", StringComparison.OrdinalIgnoreCase);
+    }
 
-        if (stream.CanSeek)
-            stream.Position = originalPosition;
+    public static bool HasMatchingSignature(Stream stream, string extension)
+    {
+        if (!stream.CanSeek)
+            return false;
 
-        return extension.ToLowerInvariant() switch
+        var normalizedExtension = NormalizeExtension(extension);
+        Span<byte> header = stackalloc byte[16];
+
+        var originalPosition = stream.Position;
+        stream.Position = 0;
+        var read = stream.Read(header);
+        stream.Position = originalPosition;
+
+        if (read < 12)
+            return false;
+
+        return normalizedExtension switch
         {
-            ".jpg" or ".jpeg" => IsJpeg(header, bytesRead),
-            ".png" => IsPng(header, bytesRead),
-            ".webp" => IsWebp(header, bytesRead),
-            ".avif" => IsAvif(header, bytesRead),
+            ".jpg" or ".jpeg" => IsJpeg(header, read),
+            ".png" => IsPng(header, read),
+            ".webp" => IsWebp(header, read),
+            ".avif" => IsAvif(header, read),
             _ => false
         };
     }
 
-    private static bool IsJpeg(byte[] header, int bytesRead)
+    private static string NormalizeExtension(string extension)
     {
-        return bytesRead >= 3
-            && header[0] == 0xFF
-            && header[1] == 0xD8
-            && header[2] == 0xFF;
+        if (string.IsNullOrWhiteSpace(extension))
+            return string.Empty;
+
+        return extension.StartsWith('.') ? extension.ToLowerInvariant() : $".{extension.ToLowerInvariant()}";
     }
 
-    private static bool IsPng(byte[] header, int bytesRead)
+    private static bool IsJpeg(ReadOnlySpan<byte> header, int read)
     {
-        return bytesRead >= 8
-            && header[0] == 0x89
-            && header[1] == 0x50
-            && header[2] == 0x4E
-            && header[3] == 0x47
-            && header[4] == 0x0D
-            && header[5] == 0x0A
-            && header[6] == 0x1A
-            && header[7] == 0x0A;
+        return read >= 3 &&
+               header[0] == 0xFF &&
+               header[1] == 0xD8 &&
+               header[2] == 0xFF;
     }
 
-    private static bool IsWebp(byte[] header, int bytesRead)
+    private static bool IsPng(ReadOnlySpan<byte> header, int read)
     {
-        return bytesRead >= 12
-            && header[0] == 0x52
-            && header[1] == 0x49
-            && header[2] == 0x46
-            && header[3] == 0x46
-            && header[8] == 0x57
-            && header[9] == 0x45
-            && header[10] == 0x42
-            && header[11] == 0x50;
+        return read >= 8 &&
+               header[0] == 0x89 &&
+               header[1] == 0x50 &&
+               header[2] == 0x4E &&
+               header[3] == 0x47 &&
+               header[4] == 0x0D &&
+               header[5] == 0x0A &&
+               header[6] == 0x1A &&
+               header[7] == 0x0A;
     }
 
-    private static bool IsAvif(byte[] header, int bytesRead)
+    private static bool IsWebp(ReadOnlySpan<byte> header, int read)
     {
-        if (bytesRead < 12)
+        return read >= 12 &&
+               header[0] == (byte)'R' &&
+               header[1] == (byte)'I' &&
+               header[2] == (byte)'F' &&
+               header[3] == (byte)'F' &&
+               header[8] == (byte)'W' &&
+               header[9] == (byte)'E' &&
+               header[10] == (byte)'B' &&
+               header[11] == (byte)'P';
+    }
+
+    private static bool IsAvif(ReadOnlySpan<byte> header, int read)
+    {
+        if (read < 12)
             return false;
 
-        var hasFtypBox = header[4] == 0x66
-            && header[5] == 0x74
-            && header[6] == 0x79
-            && header[7] == 0x70;
+        var hasFtyp =
+            header[4] == (byte)'f' &&
+            header[5] == (byte)'t' &&
+            header[6] == (byte)'y' &&
+            header[7] == (byte)'p';
 
-        if (!hasFtypBox)
+        if (!hasFtyp)
             return false;
 
-        for (var i = 8; i <= bytesRead - 4; i++)
-        {
-            var isAvifBrand = header[i] == 0x61
-                && header[i + 1] == 0x76
-                && header[i + 2] == 0x69
-                && header[i + 3] == 0x66;
+        var isAvifBrand =
+            header[8] == (byte)'a' &&
+            header[9] == (byte)'v' &&
+            header[10] == (byte)'i' &&
+            (header[11] == (byte)'f' || header[11] == (byte)'s');
 
-            var isAvisBrand = header[i] == 0x61
-                && header[i + 1] == 0x76
-                && header[i + 2] == 0x69
-                && header[i + 3] == 0x73;
-
-            if (isAvifBrand || isAvisBrand)
-                return true;
-        }
-
-        return false;
+        return isAvifBrand;
     }
 }

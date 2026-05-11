@@ -289,10 +289,10 @@ dotnet ef migrations script --project DataAccess\DataAccess.csproj --startup-pro
 ### Yoxlama neticesi
 
 - Build ugurlu kecdi.
-- EF migration list artiq yeni migration-i gosterir:
-  `20260507175358_InitialCreate`
+- EF migration list artiq yeni migration-i gosterdi.
 - EF script generation ugurlu oldu ve SQL script tam yarandi.
-- `dotnet ef database update` migration logic sebebile yox, lokal SQL Server LocalDB instance problemi sebebile fail oldu.
+- `sqllocaldb start MSSQLLocalDB` ugurlu oldu.
+- `dotnet ef database drop` ve `dotnet ef database update` ugurlu oldu.
 
 Movcud local DB varsa ve LocalDB/SQL instance saglamdirsa, reset etmek ucun:
 
@@ -303,36 +303,127 @@ dotnet ef database update --project DataAccess\DataAccess.csproj --startup-proje
 
 ## Problem 5: DTO validation zeifdir
 
-Status: `TODO`
+Status: `DONE`
 
 ### Kicik tasklar
 
-- [ ] Register/Login null yoxlamasini duzeltmek.
-- [ ] Car create/update validation-larini DataAnnotations ile guclendirmek.
-- [ ] Controller daxilindeki tekrar validation kodunu azaltmaq.
-- [ ] Bad request cavablarini yoxlamaq.
+- [x] Register/Login null yoxlamasini duzeltmek.
+- [x] Car create/update validation-larini DataAnnotations ile guclendirmek.
+- [x] Controller daxilindeki tekrar validation kodunu azaltmaq.
+- [x] Build ile yoxlamaq.
+
+### Problem
+
+Validation hissesi controller-lerin icinde el ile yazildigi ucun hem tekrar var idi, hem de `Trim()` kimi emeliyyatlar null request geldikde exception riski yarada bilirdi.
+
+### Ne edirik
+
+Validation-u DTO seviyyesine dasiyiriq. `[ApiController]` ve `DataAnnotations` birlikde request action-a girmeden once modelin dogrulugunu yoxlayir.
+
+### Edilen deyisiklikler
+
+- `RegisterDto` ucun `Required`, `StringLength`, `EmailAddress` elave edildi.
+- `LoginDto` ucun `Required` ve `EmailAddress` elave edildi.
+- `CreateCarDto` ve `UpdateCarDto` ucun `Required`, `StringLength`, `Range` elave edildi.
+- `CreateCarFeatureDto` ucun `Required` ve `StringLength` elave edildi.
+- `AuthController` icinde null riski yaradan manual block cixarildi ve normalization saxlanildi.
+- `CarsController` icinde create/update ucun tekrar yazilan manual validation bloklari cixarildi.
+
+### Niye edirik
+
+Bu yanasma controller-i sade saxlayir, validation qaydalarini merkezi edir ve invalid request-ler ucun daha stabil `400 Bad Request` davranisi verir.
+
+### Yoxlama neticesi
+
+`.\build.cmd -v:minimal` ugurla kecdi.
 
 ## Problem 6: Image upload validation zeifdir
 
-Status: `TODO`
+Status: `DONE`
 
 ### Kicik tasklar
 
-- [ ] ContentType ve extension yoxlamasini saxlamaq.
-- [ ] Magic bytes yoxlamasi elave etmek.
-- [ ] JPG/PNG/WebP/AVIF ucun minimal header yoxlamasi yazmaq.
-- [ ] Test upload hallari yazmaq.
+- [x] ContentType ve extension yoxlamasini saxlamaq.
+- [x] Magic bytes yoxlamasi elave etmek.
+- [x] JPG/PNG/WebP/AVIF ucun minimal header yoxlamasi yazmaq.
+- [x] Build ile yoxlamaq.
+
+### Problem
+
+Upload endpoint-i evvel yalniz bunlara baxirdi:
+
+- `ContentType`
+- fayl extension-u
+- size limit
+
+Amma `ContentType` client terefinden gonderilir ve saxtalasdirila biler. Yani `.jpg` adli, amma eslinde shekil olmayan bir fayl gondermek mumkundur.
+
+### Ne edirik
+
+Validation-u bir yerde toplayiriq ve faylin uc seviyede dogrulugunu yoxlayiriq:
+
+- extension icaze verilmis formatlardan olmalidir
+- MIME type icaze verilmis formatlardan olmalidir
+- faylin ilk byte-lari heqiqi format imzasina uygun olmalidir
+
+### Edilen deyisiklikler
+
+- `Services/ImageFileValidator.cs` elave edildi.
+- JPG, PNG, WebP ve AVIF ucun minimal signature yoxlamasi yazildi.
+- `CarsController.UploadImages` icinde upload-dan once:
+  - content type yoxlanir
+  - extension yoxlanir
+  - stream signature yoxlanir
+- Validation qaydalari controller daxilinde sepelik halda yox, helper icinde merkezilesdirildi.
+
+### Niye edirik
+
+Bu yanasma “yalniz image kimi gorunen fayl” yox, “heqiqeten image olan fayl” qebul etmek ucun daha gucludur. Eyni zamanda upload endpoint-indeki qaydalari bir yerde topladigi ucun baximi da rahatlasdirir.
+
+### Yoxlama neticesi
+
+`.\build.cmd -v:minimal` ugurla kecdi.
 
 ## Problem 7: Reorder duplicate id yoxlamir
 
-Status: `TODO`
+Status: `DONE`
 
 ### Kicik tasklar
 
-- [ ] Duplicate image id halini yoxlamaq.
-- [ ] Missing image id halini yoxlamaq.
-- [ ] Set beraberliyi validation-i elave etmek.
-- [ ] Endpoint-i yeniden yoxlamaq.
+- [x] Duplicate image id halini yoxlamaq.
+- [x] Missing image id halini yoxlamaq.
+- [x] Set beraberliyi validation-i elave etmek.
+- [x] Build ile yoxlamaq.
+
+### Problem
+
+`ReorderImages` endpoint-i sekil ID-lerinin yeni sirasini qebul edir. Evvel yalniz gonderilen ID-lerin hemin elana aid olub-olmadigi yoxlanirdi.
+
+Amma iki risk qalirdi:
+
+- eyni image ID iki defe gonderile bilerdi
+- car-daki hansisa image ID siyahida olmaya bilerdi
+
+Bu halda sira natamam ve ya sehv hesablana bilerdi.
+
+### Ne edirik
+
+Gonderilen ID siyahisini set-e ceviririk ve iki seyi yoxlayiriq:
+
+- set sayi original list sayina beraber olmalidir, eks halda duplicate var
+- gonderilen ID set-i car-daki image ID set-i ile tam beraber olmalidir
+
+Yalniz bu iki yoxlama kecenden sonra `Order` deyeri yenilenir.
+
+### Edilen deyisiklikler
+
+- `CarsController.ReorderImages` icinde duplicate ID yoxlamasi elave edildi.
+- Missing ve extra ID hallari ucun set beraberliyi yoxlamasi elave edildi.
+- `First(...)` tekrar axtarisi yerine `ToDictionary(...)` ile image lookup yazildi.
+
+### Yoxlama neticesi
+
+`.\build.cmd -v:minimal` ugurla kecdi.
 
 ## Problem 8: MinIO bucket policy her emeliyyatda set olunur
 
@@ -346,13 +437,46 @@ Status: `TODO`
 
 ## Problem 9: Entity collection-lar initialize olunmayib
 
-Status: `TODO`
+Status: `DONE`
 
 ### Kicik tasklar
 
-- [ ] `Car.Images` ucun default `new List<CarImage>()` vermek.
-- [ ] `Car.Features` ucun default `new List<CarFeature>()` vermek.
-- [ ] Nullable warning-lere baxmaq.
+- [x] `Car.Images` ucun default `new List<CarImage>()` vermek.
+- [x] `Car.Features` ucun default `new List<CarFeature>()` vermek.
+- [x] Entity navigation ve string property-lari nullable baximindan səliqəyə salmaq.
+- [x] Build ile yoxlamaq.
+
+### Problem
+
+Entity modeller EF terefinden sonradan doldurulan property-lere malik idi, amma C# nullable analizine gore bunlar konstruktor cixanda bos qalirdilar. Bu da `CS8618` warning-lere sebeb olurdu.
+
+### Ne edirik
+
+Modelin runtime davranisini deyismeden, initialization niyyetini aciq yaziriq:
+
+- string property-ler `= null!;`
+- reference navigation property-ler `= null!;`
+- collection navigation property-ler `= new List<...>();`
+
+### Edilen deyisiklikler
+
+- `Car.Images` default olaraq `new List<CarImage>()` ile initialize edildi.
+- `Car.Features` default olaraq `new List<CarFeature>()` ile initialize edildi.
+- `Car.User`, `CarImage.Car`, `CarFeature.Car` navigation property-leri nullable warning vermeyecek formada isare olundu.
+- `Car`, `CarImage`, `CarFeature` daxilindeki required string property-ler aciq sekilde initialize edildi.
+
+### Niye edirik
+
+Bu yanasma iki seyi birlikde verir:
+
+- EF modeli oldugu kimi qalir
+- compile vaxti gereksiz nullable warning-ler yox olur
+
+Collection-larin bos gelmesi ehtimali de aradan qalxir, buna gore kodun qalan hissesinde `Images` ve `Features` ile islemek daha tehlukesiz olur.
+
+### Yoxlama neticesi
+
+`.\build.cmd -v:minimal` ugurla kecdi.
 
 ## Problem 10: Test project yoxdur
 

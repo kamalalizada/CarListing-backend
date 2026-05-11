@@ -116,12 +116,6 @@ public class CarsController : ControllerBase
         if (!User.IsInRole("Admin") && await IsCurrentUserBlocked())
             return Forbid("Siz bloklanmısınız.");
 
-        if (string.IsNullOrWhiteSpace(dto.Title)) return BadRequest("Title boş ola bilməz");
-        if (string.IsNullOrWhiteSpace(dto.Brand)) return BadRequest("Brand boş ola bilməz");
-        if (string.IsNullOrWhiteSpace(dto.Model)) return BadRequest("Model boş ola bilməz");
-        if (dto.Year < 1950 || dto.Year > DateTime.UtcNow.Year + 1) return BadRequest("Year düzgün deyil");
-        if (dto.Price <= 0) return BadRequest("Price 0-dan böyük olmalıdır");
-
         var userId = User.GetUserId();
 
         var features = (dto.Features ?? new List<CreateCarFeatureDto>())
@@ -203,18 +197,20 @@ public class CarsController : ControllerBase
             if (file.Length > 5 * 1024 * 1024)
                 return BadRequest("Şəkil 5MB-dan böyük ola bilməz.");
 
-            if (!file.ContentType.StartsWith("image/"))
-                return BadRequest("Yalnız şəkil faylları qəbul olunur.");
+            if (!ImageFileValidator.IsAllowedContentType(file.ContentType))
+                return BadRequest("Yalnız jpeg, png, webp və avif şəkilləri qəbul olunur.");
 
             var ext = Path.GetExtension(file.FileName);
             if (string.IsNullOrWhiteSpace(ext)) ext = ".jpg";
 
             ext = ext.ToLowerInvariant();
-            var allowed = new[] { ".jpg", ".jpeg", ".png", ".webp", ".avif" };
-            if (!allowed.Contains(ext))
+            if (!ImageFileValidator.IsAllowedExtension(ext))
                 return BadRequest("Yalnız jpg, jpeg, png, avif  webp qəbul olunur.");
 
             await using var stream = file.OpenReadStream();
+            if (!ImageFileValidator.HasMatchingSignature(stream, ext))
+                return BadRequest("Yüklənən faylın formatı etibarlı şəkil formatı deyil.");
+
             var upload = await _imageStorage.UploadAsync(
                 car.Id,
                 stream,
@@ -335,12 +331,6 @@ public class CarsController : ControllerBase
         if (!User.IsInRole("Admin") && await IsCurrentUserBlocked())
             return Forbid("Siz bloklanmısınız.");
 
-        if (string.IsNullOrWhiteSpace(dto.Title)) return BadRequest("Title boş ola bilməz");
-        if (string.IsNullOrWhiteSpace(dto.Brand)) return BadRequest("Brand boş ola bilməz");
-        if (string.IsNullOrWhiteSpace(dto.Model)) return BadRequest("Model boş ola bilməz");
-        if (dto.Year < 1950 || dto.Year > DateTime.UtcNow.Year + 1) return BadRequest("Year düzgün deyil");
-        if (dto.Price <= 0) return BadRequest("Price 0-dan böyük olmalıdır");
-
         var car = await _db.Cars
             .Include(c => c.Features)
             .FirstOrDefaultAsync(c => c.Id == id && c.IsActive);
@@ -395,13 +385,19 @@ public class CarsController : ControllerBase
         if (!isAdmin && car.UserId != userId) return Forbid();
 
         var carImageIds = car.Images.Select(i => i.Id).ToHashSet();
-        if (dto.ImageIds.Any(x => !carImageIds.Contains(x)))
+        var requestedImageIds = dto.ImageIds.ToHashSet();
+
+        if (requestedImageIds.Count != dto.ImageIds.Count)
+            return BadRequest("Şəkil ID-ləri təkrar göndərilə bilməz.");
+
+        if (requestedImageIds.Count != carImageIds.Count || !requestedImageIds.SetEquals(carImageIds))
             return BadRequest("Göndərilən şəkillər bu elana aid deyil.");
 
+        var imagesById = car.Images.ToDictionary(i => i.Id);
         for (int idx = 0; idx < dto.ImageIds.Count; idx++)
         {
             var imageId = dto.ImageIds[idx];
-            var img = car.Images.First(i => i.Id == imageId);
+            var img = imagesById[imageId];
             img.Order = idx;
         }
 
