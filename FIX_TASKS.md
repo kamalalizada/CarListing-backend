@@ -17,7 +17,7 @@ Bu faylda `CODE_ANALYSIS.md`-de tapilan problemleri bir-bir, kicik tasklara bolu
 - `BLOCKED`: senden melumat ve ya icaze lazimdir
 ## Problem 1: Build ugursuz qayidir
 
-Status: `DONE WITH WORKAROUND`
+Status: `DONE`
 
 ### Problem
 
@@ -76,11 +76,11 @@ Tek-tek project-ler ugurla build olunur. Solution ve root API project normal par
 
 ### Yekun netice
 
-`dotnet build CarListing.sln` normal parallel rejimde hele de `0 error, 0 warning` gostermesine baxmayaraq exit code `1` qaytarir. `dotnet build CarListing.sln /m:1` ugurla kecir.
+Evvel `dotnet build CarListing.sln` normal parallel rejimde `0 error, 0 warning` gostermesine baxmayaraq exit code `1` qaytarirdi. Workload repair/update ve project dependency/reference duzelislerinden sonra normal solution build yeniden yoxlanildi ve ugurlu kecdi.
 
-Bu o demekdir ki, kod compile olunur; problem kod sintaksisinde deyil. Problem lokal MSBuild parallel execution/workload resolver davranisi ile baglidir.
+Bu o demekdir ki, kod compile olunur ve hazirki lokal muhitde parallel solution build de stabil gorunur.
 
-Hazirda stabil build komandasi:
+Stabil build komandasi:
 
 ```powershell
 .\build.cmd
@@ -94,6 +94,7 @@ dotnet build CarListing.sln /m:1
 
 Son yoxlama neticesi:
 
+- `dotnet build CarListing.sln -v:minimal` ugurlu oldu.
 - `dotnet build CarListing.sln /m:1 -v:minimal` ugurlu oldu.
 - `dotnet build wCarListing.csproj --no-restore /m:1 -v:minimal` ugurlu oldu.
 - NU1900 warning gorundu, cunki NuGet vulnerability audit `https://api.nuget.org/v3/index.json` sorgusunu ala bilmedi. Bu compile error deyil.
@@ -325,6 +326,7 @@ Validation-u DTO seviyyesine dasiyiriq. `[ApiController]` ve `DataAnnotations` b
 - `RegisterDto` ucun `Required`, `StringLength`, `EmailAddress` elave edildi.
 - `LoginDto` ucun `Required` ve `EmailAddress` elave edildi.
 - `CreateCarDto` ve `UpdateCarDto` ucun `Required`, `StringLength`, `Range` elave edildi.
+- Decimal `Range` limitleri culture-dan asili parse olunmasin deye `ParseLimitsInInvariantCulture = true` elave edildi.
 - `CreateCarFeatureDto` ucun `Required` ve `StringLength` elave edildi.
 - `AuthController` icinde null riski yaradan manual block cixarildi ve normalization saxlanildi.
 - `CarsController` icinde create/update ucun tekrar yazilan manual validation bloklari cixarildi.
@@ -427,13 +429,38 @@ Yalniz bu iki yoxlama kecenden sonra `Order` deyeri yenilenir.
 
 ## Problem 8: MinIO bucket policy her emeliyyatda set olunur
 
-Status: `TODO`
+Status: `DONE`
 
 ### Kicik tasklar
 
-- [ ] `EnsureBucketAsync` davranisini ayirmaq.
-- [ ] Startup/provisioning ucun daha uygun yer secmek.
-- [ ] Upload/delete path-ini yunguletmek.
+- [x] `EnsureBucketAsync` davranisini ayirmaq.
+- [x] Startup/provisioning ucun daha uygun yer secmek.
+- [x] Upload/delete path-ini yunguletmek.
+
+### Problem
+
+`MinioImageStorageService` evvel her upload ve delete emeliyyatinda bucket-in olub-olmadigini yoxlayirdi ve public read policy-ni yeniden set edirdi.
+
+### Ne edirik
+
+Bucket yaradilisini ve policy tetbiqini image storage provisioning addimi kimi ayirdiq. `UploadAsync` ve `DeleteAsync` yalniz oz esas isini gorur:
+
+- upload fayli MinIO-ya yazir
+- delete object-i MinIO-dan silir
+
+Provisioning ise app startup zamani bir defe icra olunur.
+
+### Edilen deyisiklikler
+
+- `Services/IImageStorageProvisioner.cs` elave edildi.
+- `MinioImageStorageService` hem `IImageStorageService`, hem de `IImageStorageProvisioner` implement edir.
+- `EnsureBucketAsync` public `ProvisionAsync` davranisina cevrildi.
+- `UploadAsync` ve `DeleteAsync` icinden bucket/policy yoxlamasi cixarildi.
+- `Program.cs` icinde startup zamani `IImageStorageProvisioner.ProvisionAsync()` cagrilir.
+
+### Yoxlama neticesi
+
+`.\build.cmd -v:minimal` ugurla kecdi.
 
 ## Problem 9: Entity collection-lar initialize olunmayib
 
@@ -480,15 +507,224 @@ Collection-larin bos gelmesi ehtimali de aradan qalxir, buna gore kodun qalan hi
 
 ## Problem 10: Test project yoxdur
 
-Status: `TODO`
+Status: `DONE`
 
 ### Kicik tasklar
 
-- [ ] Test framework secmek.
-- [ ] Minimum auth testleri.
-- [ ] Minimum car authorization testleri.
-- [ ] Image validation testleri.
+- [x] Test framework secmek.
+- [x] Minimum auth/password testleri.
+- [x] Minimum car authorization testleri.
+- [x] Image validation testleri.
 
-### Senden lazim ola bilecek melumat
+### Ne edirik
 
-Test ucun xUnit, NUnit, yoxsa MSTest isteyirsen?
+xUnit test project elave edildi ve solution-a qosuldu. Ilk test seti daha cox riskli, amma DB/HTTP dependency teleb etmeyen hisseleri yoxlayir:
+
+- password hash/verify davranisi
+- DTO validation qaydalari
+- non-owner user-in car update/delete emeliyyatlarinda `Forbid` almasi
+- image extension/content-type/signature validation-i
+
+### Edilen deyisiklikler
+
+- `Tests/CarListing.Tests/CarListing.Tests.csproj` yaradildi.
+- Test project `CarListing.sln` icine elave edildi.
+- `PasswordServiceTests` elave edildi.
+- `ImageFileValidatorTests` elave edildi.
+- `DtoValidationTests` elave edildi.
+- `CarAuthorizationTests` elave edildi.
+- `wCarListing.csproj` icinde `Tests/**/*.cs` root web project compile-indan cixarildi.
+- Test neticesinde tapilan decimal `Range` culture problemi `CreateCarDto` ve `UpdateCarDto` ucun duzeldildi.
+
+### Ne istifade edirik
+
+- xUnit
+- EF Core InMemory
+- Microsoft.NET.Test.Sdk
+- DataAnnotations validation
+
+### Yoxlama neticesi
+
+`dotnet test Tests\CarListing.Tests\CarListing.Tests.csproj -v:minimal` ugurla kecdi:
+
+- 14 test passed
+- 0 failed
+
+`.\build.cmd -v:minimal` ugurla kecdi.
+
+
+---
+
+# Next hardening tasks
+
+Bu bolme `CODE_ANALYSIS.md`-de qalan production risklerini yeni, izlene bilen tasklara cevirir. Ilk 10 problem compile/build/security baseline ucun baglanib. Asagidaki tasklar ise production davranisi, maintenance ve daha genis test coverage ucundur.
+
+## Problem 11: Public bucket security qerari netlesmeyib
+
+Status: `DONE`
+
+### Problem
+
+MinIO bucket policy-si butun `car-images` bucket-i ucun public `s3:GetObject` icazesi verir. Hazirki elan sekilleri public ola biler, amma gelecekde private/user-sensitive upload-lar eyni storage yanaşmasina dusse risk yaranar.
+
+### Ne edirik
+
+Public access qaydasini explicit config ve documentation ile idare etmek lazimdir:
+
+- car image bucket-in public olub-olmadigini config-de aciq gostermek
+- public bucket policy-ni yalniz public image use-case ucun tetbiq etmek
+- gelecek private file-lar ucun presigned URL yanaşmasini ayri saxlamaq
+
+### Kicik tasklar
+
+- [x] `Minio:MakeBucketPublic` kimi config flag elave etmek.
+- [x] `ProvisionAsync` policy-ni yalniz flag true olanda set etsin.
+- [x] Default development davranisini secmek.
+- [x] Private upload-lar ucun presigned URL yanaşmasini note kimi qeyd etmek.
+- [x] Build/test ile yoxlamaq.
+
+### Edilen deyisiklikler
+
+- `MinioOptions.MakeBucketPublic` elave edildi.
+- `appsettings.json` development default olaraq `"MakeBucketPublic": true` saxlayir.
+- Production-da public policy istemirikse, `Minio__MakeBucketPublic=false` verilmelidir.
+- `MinioImageStorageService.ProvisionAsync` bucket-i yaradandan sonra policy-ni yalniz `MakeBucketPublic == true` olanda set edir.
+- Private upload-lar gelecekde eyni public bucket policy-sine baglanmamali, presigned URL ve ya ayri private bucket yanaşmasi ile hell edilmelidir.
+
+### Yoxlama neticesi
+
+- `.\build.cmd -v:minimal` ugurla kecdi.
+- `dotnet test Tests\CarListing.Tests\CarListing.Tests.csproj -v:minimal` ugurla kecdi: 14 passed, 0 failed.
+
+## Problem 12: Soft delete sekilleri storage-dan silmir
+
+Status: `DONE`
+
+### Problem
+
+Elan silinende `IsActive = false` edilir, amma MinIO-daki sekiller qalir. Bu biznes baximindan duzgun ola biler, amma storage cost, cleanup ve privacy telebleri ucun riskdir.
+
+### Ne edirik
+
+Soft delete davranisini explicit qerar kimi ayirmaq lazimdir:
+
+- soft delete zamani sekilleri saxlamaq
+- ve ya purge/cleanup mexanizmi ile sonradan silmek
+
+### Kicik tasklar
+
+- [x] Soft delete zamani image-larin saxlanmasi biznes qerari kimi qeyd edilsin.
+- [x] Admin/maintenance cleanup servisi ucun yanaşma secilsin.
+- [x] Deactivated car image-larini temizleyen service yazilsin ve ya task kimi ayrilsin.
+- [x] Storage delete failure halinda DB consistency davranisi netlesdirilsin.
+- [x] Test senarisi elave edilsin.
+
+### Edilen deyisiklikler
+
+- Soft delete davranisi oldugu kimi saxlanildi: elan silinende `IsActive = false` olur.
+- Storage temizliyi ucun ayri `InactiveCarImageCleanupService` elave edildi.
+- Service yalniz inactive car-lara aid image-lari storage-dan silir ve sonra DB row-larini temizleyir.
+- Storage delete fail ederse exception qalxir ve DB row-lari silinmir. Bu, DB-nin storage-dan evvel temizlenib orphan risk yaratmasinin qarsisini alir.
+- Service DI-a `Scoped` kimi elave edildi ki, sonra admin/maintenance endpoint, CLI flag ve ya background job terefinden cagrila bilsin.
+- `InactiveCarImageCleanupServiceTests` elave edildi.
+
+### Yoxlama neticesi
+
+- `dotnet test Tests\CarListing.Tests\CarListing.Tests.csproj -v:minimal` ugurla kecdi: 16 passed, 0 failed.
+- `.\build.cmd -v:minimal` ugurla kecdi.
+
+## Problem 13: Block edilmis user-in movcud tokenleri aktiv qala biler
+
+Status: `DONE`
+
+### Problem
+
+Login zamani blocked user yoxlanir ve car endpoint-lerinde `IsCurrentUserBlocked()` var. Amma bu yoxlama her yeni protected endpoint-de unudula biler. JWT token oz lifetime-i bitene qeder formal olaraq valid qalir.
+
+### Ne edirik
+
+Blocked user yoxlamasini merkezi auth layer-e dasimaq lazimdir:
+
+- JWT validation event-de user statusunu DB-den yoxlamaq
+- ve ya custom authorization policy/handler yazmaq
+
+### Kicik tasklar
+
+- [x] `JwtBearerEvents.OnTokenValidated` ile user blocked yoxlamasini araşdırmaq.
+- [x] DB query cost ve caching yanaşmasini secmek.
+- [x] Controller-lerde tekrar `IsCurrentUserBlocked()` ehtiyacini azaltmaq.
+- [x] Blocked user token testleri elave etmek.
+- [x] Build/test ile yoxlamaq.
+
+### Edilen deyisiklikler
+
+- `BlockedUserTokenValidator` elave edildi.
+- JWT auth config-inde `JwtBearerEvents.OnTokenValidated` elave edildi.
+- Token validasiya olunandan sonra user id DB-den yoxlanir; user blocked-dursa `context.Fail("User is blocked.")` edilir.
+- Controller-lerdeki tekrar `IsCurrentUserBlocked()` bloklari cixarildi.
+- Bu yoxlama her protected endpoint ucun merkezi auth pipeline-da isleyir.
+- `BlockedUserTokenValidatorTests` elave edildi.
+
+### Qeyd
+
+Bu yanasma her authenticated request-de yüngül DB query edir. Traffic artanda bunu qisa TTL cache ile optimallasdirmaq olar, amma indiki merhelede correctness daha vacibdir.
+
+### Yoxlama neticesi
+
+- `dotnet test Tests\CarListing.Tests\CarListing.Tests.csproj -v:minimal` ugurla kecdi: 19 passed, 0 failed.
+- `.\build.cmd -v:minimal` ugurla kecdi.
+
+## Problem 14: Namespace/layering qarisiqligi qalir
+
+Status: `TODO`
+
+### Problem
+
+Project adlari ve namespace-ler tam uygun deyil:
+
+- `Entry` hem domain model, hem DTO projectidir
+- `DataAccess` namespace-i `Entry.Data` kimi gorunur
+- controller namespace-i `Entry.Controllers`-dir, amma controller-ler root web project-dedir
+
+Bu hal hazirda build-i pozmur, amma uzunmuddetli maintenance ucun qarisiqliq yaradir.
+
+### Ne edirik
+
+Namespace ve project serhedlerini refactor planina salmaq lazimdir. Bu task boyuk blast radius-a malik oldugu ucun bir defe-de kor refactor etmek yox, merheleli aparmaq daha saglamdir.
+
+### Kicik tasklar
+
+- [ ] Hedef namespace sxemini secmek (`CarListing.Api`, `CarListing.Domain`, `CarListing.DataAccess`, `CarListing.Business`).
+- [ ] Project rename lazimdirmi, yoxsa yalniz namespace rename kifayetdirmi qerar vermek.
+- [ ] Refactor planini ve riskleri yazmaq.
+- [ ] Namespace rename-i merheleli etmek.
+- [ ] Build/test ile yoxlamaq.
+
+## Problem 15: Integration/API test coverage hele minimaldir
+
+Status: `TODO`
+
+### Problem
+
+Test project var ve ilk 14 test kecir. Amma tam API davranisi ucun hele integration testler yoxdur:
+
+- register/login HTTP flow
+- admin seed/login
+- image upload endpoint-i
+- reorder duplicate/missing id HTTP response-lari
+- blocked user-in protected endpoint-lere gire bilmemesi
+
+### Ne edirik
+
+`WebApplicationFactory` esasli integration test qatini elave etmek lazimdir. DB ucun test environment ayri olmalidir ki, local development DB-ye toxunulmasin.
+
+### Kicik tasklar
+
+- [ ] `Microsoft.AspNetCore.Mvc.Testing` paketi elave etmek.
+- [ ] Test app factory yazmaq.
+- [ ] Test config ile secret guard-lari kecmek.
+- [ ] Test DB strategiyasini secmek: SQLite in-memory ve ya SQL Server LocalDB test database.
+- [ ] Auth register/login integration testleri yazmaq.
+- [ ] Car authorization integration testleri yazmaq.
+- [ ] Image upload/reorder integration testleri yazmaq.
+- [ ] Build/test ile yoxlamaq.

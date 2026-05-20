@@ -32,8 +32,13 @@ if (string.IsNullOrWhiteSpace(adminPassword))
 // Services
 builder.Services.AddScoped<Business.Concrete.TokenService>();
 builder.Services.Configure<MinioOptions>(builder.Configuration.GetSection("Minio"));
-builder.Services.AddScoped<IImageStorageService, MinioImageStorageService>();
+builder.Services.AddScoped<MinioImageStorageService>();
+builder.Services.AddScoped<IImageStorageService>(sp => sp.GetRequiredService<MinioImageStorageService>());
+builder.Services.AddScoped<IImageStorageProvisioner>(sp => sp.GetRequiredService<MinioImageStorageService>());
 builder.Services.AddScoped<LocalImageMigrationService>();
+builder.Services.AddScoped<InactiveCarImageCleanupService>();
+builder.Services.AddScoped<BlockedUserTokenValidator>();
+builder.Services.AddScoped<IAiSearchParserService, RuleBasedAiSearchParserService>();
 
 // CORS (Angular)
 builder.Services.AddCors(options =>
@@ -61,6 +66,18 @@ builder.Services
             ValidateIssuerSigningKey = true,
             ValidIssuer = jwtIssuer,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+        };
+        opt.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var validator = context.HttpContext.RequestServices.GetRequiredService<BlockedUserTokenValidator>();
+                if (context.Principal is not null &&
+                    await validator.IsBlockedAsync(context.Principal, context.HttpContext.RequestAborted))
+                {
+                    context.Fail("User is blocked.");
+                }
+            }
         };
     });
 
@@ -101,12 +118,17 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 var app = builder.Build();
+var skipStartupTasks = builder.Configuration.GetValue<bool>("Startup:SkipTasks");
 
 // ✅ DB migrate + admin seed
-using (var scope = app.Services.CreateScope())
+if (!skipStartupTasks)
 {
+    using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var imageStorageProvisioner = scope.ServiceProvider.GetRequiredService<IImageStorageProvisioner>();
+
     await db.Database.MigrateAsync();
+    await imageStorageProvisioner.ProvisionAsync();
 
     var admin = await db.Users.FirstOrDefaultAsync(u => u.Role == "Admin");
     if (admin is null)
@@ -146,7 +168,10 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    app.UseHttpsRedirection();
+}
 
 // ✅ Static files (.avif/.webp mapping) — 404 problemini bu həll edir
 var provider = new FileExtensionContentTypeProvider();
@@ -186,3 +211,5 @@ static bool IsPlaceholderSecret(string? value)
     return value.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase) ||
            value.Contains("SUPER_SECRET", StringComparison.OrdinalIgnoreCase);
 }
+
+public partial class Program;

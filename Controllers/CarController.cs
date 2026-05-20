@@ -15,33 +15,38 @@ public class CarsController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IImageStorageService _imageStorage;
+    private readonly IAiSearchParserService _aiSearchParser;
 
 
-    public CarsController(AppDbContext db, IImageStorageService imageStorage)
+    public CarsController(AppDbContext db, IImageStorageService imageStorage, IAiSearchParserService aiSearchParser)
     {
         _db = db;
         _imageStorage = imageStorage;
+        _aiSearchParser = aiSearchParser;
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    public async Task<ActionResult<PagedResultDto<CarListItemDto>>> GetAll([FromQuery] CarSearchFilterDto filter)
     {
-        if (page <= 0) page = 1;
-        if (pageSize <= 0 || pageSize > 100) pageSize = 20;
+        if (filter.Page <= 0) filter.Page = 1;
+        if (filter.PageSize <= 0 || filter.PageSize > 100) filter.PageSize = 20;
 
         var query = _db.Cars
             .AsNoTracking()
             .Where(x => x.IsActive)
             .Include(x => x.Images)
             .Include(x => x.Features)
-            .OrderByDescending(x => x.CreatedAt);
+            .AsQueryable();
+
+        query = ApplyFilters(query, filter);
+        query = ApplySorting(query, filter);
 
         var total = await query.CountAsync();
 
         var items = await query
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .Select(x => new CarDetailsDto
+            .Skip((filter.Page - 1) * filter.PageSize)
+            .Take(filter.PageSize)
+            .Select(x => new CarListItemDto
             {
                 Id = x.Id,
                 CreatedAt = x.CreatedAt,
@@ -50,14 +55,13 @@ public class CarsController : ControllerBase
                 Model = x.Model,
                 Year = x.Year,
                 Price = x.Price,
-                UserId = x.UserId,
-                Images = x.Images.OrderBy(i => i.Order).Select(i => new CarImageDto
-                {
-                    Id = i.Id,
-                    ImageUrl = i.ImageUrl,
-                    IsMain = i.IsMain,
-                    Order = i.Order
-                }).ToList(),
+                Mileage = x.Mileage,
+                FuelType = x.FuelType,
+                BodyType = x.BodyType,
+                Transmission = x.Transmission,
+                Engine = x.Engine,
+                City = x.City,
+                Color = x.Color,
                 Features = x.Features.Select(f => new CarFeatureDto
                 {
                     Id = f.Id,
@@ -67,7 +71,76 @@ public class CarsController : ControllerBase
             })
             .ToListAsync();
 
-        return Ok(new { total, page, pageSize, items });
+        return Ok(new PagedResultDto<CarListItemDto>
+        {
+            Total = total,
+            Page = filter.Page,
+            PageSize = filter.PageSize,
+            Items = items
+        });
+    }
+
+    [HttpGet("metadata")]
+    public ActionResult<CarMetadataDto> GetMetadata()
+    {
+        return Ok(new CarMetadataDto
+        {
+            FuelTypes = ["Petrol", "Diesel", "Hybrid", "Electric"],
+            BodyTypes = ["Sedan", "SUV", "Hatchback", "Coupe", "Wagon", "Minivan", "Pickup"],
+            Transmissions = ["Automatic", "Manual"],
+            SortOptions = ["newest", "price", "year", "mileage"]
+        });
+    }
+
+    [HttpGet("compare")]
+    public async Task<ActionResult<List<CarCompareItemDto>>> Compare([FromQuery] List<int> ids)
+    {
+        var distinctIds = ids.Distinct().Take(4).ToList();
+        if (distinctIds.Count < 2)
+            return BadRequest("Müqayisə üçün ən azı 2 elan seçilməlidir.");
+
+        var items = await _db.Cars
+            .AsNoTracking()
+            .Where(c => c.IsActive && distinctIds.Contains(c.Id))
+            .Include(c => c.Features)
+            .Select(c => new CarCompareItemDto
+            {
+                Id = c.Id,
+                Title = c.Title,
+                Brand = c.Brand,
+                Model = c.Model,
+                Year = c.Year,
+                Price = c.Price,
+                Mileage = c.Mileage,
+                FuelType = c.FuelType,
+                BodyType = c.BodyType,
+                Transmission = c.Transmission,
+                Engine = c.Engine,
+                City = c.City,
+                Color = c.Color,
+                Features = c.Features.Select(f => new CarFeatureDto
+                {
+                    Id = f.Id,
+                    Key = f.Key,
+                    Value = f.Value
+                }).ToList()
+            })
+            .ToListAsync();
+
+        var orderedItems = distinctIds
+            .Join(items, id => id, item => item.Id, (_, item) => item)
+            .ToList();
+
+        if (orderedItems.Count != distinctIds.Count)
+            return BadRequest("Seçilən elanlardan biri tapılmadı və ya aktiv deyil.");
+
+        return Ok(orderedItems);
+    }
+
+    [HttpPost("ai-search/parse")]
+    public ActionResult<AiSearchResultDto> ParseAiSearch([FromBody] AiSearchRequestDto request)
+    {
+        return Ok(_aiSearchParser.Parse(request));
     }
 
     [HttpGet("{id:int}")]
@@ -90,6 +163,14 @@ public class CarsController : ControllerBase
             Model = car.Model,
             Year = car.Year,
             Price = car.Price,
+            Mileage = car.Mileage,
+            FuelType = car.FuelType,
+            BodyType = car.BodyType,
+            Transmission = car.Transmission,
+            Engine = car.Engine,
+            City = car.City,
+            Color = car.Color,
+            Description = car.Description,
             UserId = car.UserId,
             Images = car.Images.OrderBy(i => i.Order).Select(i => new CarImageDto
             {
@@ -113,9 +194,6 @@ public class CarsController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateCarDto dto)
     {
-        if (!User.IsInRole("Admin") && await IsCurrentUserBlocked())
-            return Forbid("Siz bloklanmısınız.");
-
         var userId = User.GetUserId();
 
         var features = (dto.Features ?? new List<CreateCarFeatureDto>())
@@ -136,6 +214,14 @@ public class CarsController : ControllerBase
             Model = dto.Model.Trim(),
             Year = dto.Year,
             Price = dto.Price,
+            Mileage = dto.Mileage,
+            FuelType = dto.FuelType.Trim(),
+            BodyType = dto.BodyType.Trim(),
+            Transmission = dto.Transmission.Trim(),
+            Engine = dto.Engine.Trim(),
+            City = dto.City.Trim(),
+            Color = NormalizeOptional(dto.Color),
+            Description = NormalizeOptional(dto.Description),
             UserId = userId,
             CreatedAt = DateTime.UtcNow,
             Features = features
@@ -151,9 +237,6 @@ public class CarsController : ControllerBase
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id)
     {
-        if (!User.IsInRole("Admin") && await IsCurrentUserBlocked())
-            return Forbid("Siz bloklanmısınız.");
-
         var car = await _db.Cars.FirstOrDefaultAsync(x => x.Id == id && x.IsActive);
         if (car is null) return NotFound();
 
@@ -170,9 +253,6 @@ public class CarsController : ControllerBase
     [HttpPost("{id:int}/images")]
     public async Task<IActionResult> UploadImages(int id, [FromForm] List<IFormFile> files)
     {
-        if (!User.IsInRole("Admin") && await IsCurrentUserBlocked())
-            return Forbid("Siz bloklanmısınız.");
-
         if (files == null || files.Count == 0)
             return BadRequest("Heç bir şəkil göndərilməyib.");
 
@@ -254,9 +334,6 @@ public class CarsController : ControllerBase
     [HttpPut("{id:int}/images/{imageId:int}/main")]
     public async Task<IActionResult> SetMainImage(int id, int imageId)
     {
-        if (!User.IsInRole("Admin") && await IsCurrentUserBlocked())
-            return Forbid("Siz bloklanmısınız.");
-
         var car = await _db.Cars
             .Include(c => c.Images)
             .FirstOrDefaultAsync(c => c.Id == id && c.IsActive);
@@ -281,9 +358,6 @@ public class CarsController : ControllerBase
     
     public async Task<IActionResult> DeleteImage(int id, int imageId)
     {
-        if (!User.IsInRole("Admin") && await IsCurrentUserBlocked())
-            return Forbid("Siz bloklanmısınız.");
-
         var car = await _db.Cars
             .Include(c => c.Images)
             .FirstOrDefaultAsync(c => c.Id == id && c.IsActive);
@@ -328,9 +402,6 @@ public class CarsController : ControllerBase
     [HttpPut("{id:int}")]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateCarDto dto)
     {
-        if (!User.IsInRole("Admin") && await IsCurrentUserBlocked())
-            return Forbid("Siz bloklanmısınız.");
-
         var car = await _db.Cars
             .Include(c => c.Features)
             .FirstOrDefaultAsync(c => c.Id == id && c.IsActive);
@@ -346,6 +417,14 @@ public class CarsController : ControllerBase
         car.Model = dto.Model.Trim();
         car.Year = dto.Year;
         car.Price = dto.Price;
+        car.Mileage = dto.Mileage;
+        car.FuelType = dto.FuelType.Trim();
+        car.BodyType = dto.BodyType.Trim();
+        car.Transmission = dto.Transmission.Trim();
+        car.Engine = dto.Engine.Trim();
+        car.City = dto.City.Trim();
+        car.Color = NormalizeOptional(dto.Color);
+        car.Description = NormalizeOptional(dto.Description);
 
         _db.CarFeatures.RemoveRange(car.Features);
 
@@ -364,13 +443,80 @@ public class CarsController : ControllerBase
         return NoContent();
     }
 
+    private static IQueryable<Car> ApplyFilters(IQueryable<Car> query, CarSearchFilterDto filter)
+    {
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+        {
+            var search = filter.Search.Trim();
+            query = query.Where(x =>
+                x.Title.Contains(search) ||
+                x.Brand.Contains(search) ||
+                x.Model.Contains(search) ||
+                x.City.Contains(search) ||
+                x.FuelType.Contains(search) ||
+                x.BodyType.Contains(search) ||
+                x.Transmission.Contains(search) ||
+                x.Engine.Contains(search));
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.Brand))
+            query = query.Where(x => x.Brand == filter.Brand.Trim());
+
+        if (!string.IsNullOrWhiteSpace(filter.Model))
+            query = query.Where(x => x.Model == filter.Model.Trim());
+
+        if (!string.IsNullOrWhiteSpace(filter.City))
+            query = query.Where(x => x.City == filter.City.Trim());
+
+        if (!string.IsNullOrWhiteSpace(filter.FuelType))
+            query = query.Where(x => x.FuelType == filter.FuelType.Trim());
+
+        if (!string.IsNullOrWhiteSpace(filter.BodyType))
+            query = query.Where(x => x.BodyType == filter.BodyType.Trim());
+
+        if (!string.IsNullOrWhiteSpace(filter.Transmission))
+            query = query.Where(x => x.Transmission == filter.Transmission.Trim());
+
+        if (filter.PriceMin.HasValue)
+            query = query.Where(x => x.Price >= filter.PriceMin.Value);
+
+        if (filter.PriceMax.HasValue)
+            query = query.Where(x => x.Price <= filter.PriceMax.Value);
+
+        if (filter.YearMin.HasValue)
+            query = query.Where(x => x.Year >= filter.YearMin.Value);
+
+        if (filter.YearMax.HasValue)
+            query = query.Where(x => x.Year <= filter.YearMax.Value);
+
+        if (filter.MileageMax.HasValue)
+            query = query.Where(x => x.Mileage <= filter.MileageMax.Value);
+
+        return query;
+    }
+
+    private static IQueryable<Car> ApplySorting(IQueryable<Car> query, CarSearchFilterDto filter)
+    {
+        var descending = string.Equals(filter.SortDirection, "desc", StringComparison.OrdinalIgnoreCase);
+
+        return filter.SortBy?.Trim().ToLowerInvariant() switch
+        {
+            "price" => descending ? query.OrderByDescending(x => x.Price) : query.OrderBy(x => x.Price),
+            "year" => descending ? query.OrderByDescending(x => x.Year) : query.OrderBy(x => x.Year),
+            "mileage" => descending ? query.OrderByDescending(x => x.Mileage) : query.OrderBy(x => x.Mileage),
+            _ => query.OrderByDescending(x => x.CreatedAt)
+        };
+    }
+
+    private static string? NormalizeOptional(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
     [Authorize]
     [HttpPut("{id:int}/images/reorder")]
     public async Task<IActionResult> ReorderImages(int id, [FromBody] ReorderImagesDto dto)
     {
-        if (!User.IsInRole("Admin") && await IsCurrentUserBlocked())
-            return Forbid("Siz bloklanmısınız.");
-
         if (dto.ImageIds == null || dto.ImageIds.Count == 0)
             return BadRequest("ImageIds boş ola bilməz.");
 
@@ -403,11 +549,5 @@ public class CarsController : ControllerBase
 
         await _db.SaveChangesAsync();
         return NoContent();
-    }
-
-    private async Task<bool> IsCurrentUserBlocked()
-    {
-        var userId = User.GetUserId();
-        return await _db.Users.AnyAsync(u => u.Id == userId && u.IsBlocked);
     }
 }

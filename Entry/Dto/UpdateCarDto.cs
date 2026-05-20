@@ -19,8 +19,37 @@ public class UpdateCarDto
     [Range(1950, 2100)]
     public int Year { get; set; }
 
-    [Range(typeof(decimal), "0.01", "9999999999999999")]
+    [Range(typeof(decimal), "0.01", "9999999999999999", ParseLimitsInInvariantCulture = true)]
     public decimal Price { get; set; }
+
+    [Range(0, 2_000_000)]
+    public int Mileage { get; set; }
+
+    [Required]
+    [StringLength(30)]
+    public string FuelType { get; set; } = null!;
+
+    [Required]
+    [StringLength(30)]
+    public string BodyType { get; set; } = null!;
+
+    [Required]
+    [StringLength(30)]
+    public string Transmission { get; set; } = null!;
+
+    [Required]
+    [StringLength(50)]
+    public string Engine { get; set; } = null!;
+
+    [Required]
+    [StringLength(50)]
+    public string City { get; set; } = null!;
+
+    [StringLength(50)]
+    public string? Color { get; set; }
+
+    [StringLength(2000)]
+    public string? Description { get; set; }
 
     public List<CreateCarFeatureDto> Features { get; set; } = new();
 }

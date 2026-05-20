@@ -53,6 +53,13 @@ public class AdminController : ControllerBase
                 x.Model,
                 x.Year,
                 x.Price,
+                x.Mileage,
+                x.FuelType,
+                x.BodyType,
+                x.Transmission,
+                x.Engine,
+                x.City,
+                x.Color,
                 x.UserId,
                 x.IsActive,
                 x.CreatedAt

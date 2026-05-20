@@ -8,4 +8,5 @@ public sealed class MinioOptions
     public string BucketName { get; set; } = null!;
     public string PublicBaseUrl { get; set; } = null!;
     public bool UseSsl { get; set; }
+    public bool MakeBucketPublic { get; set; } = true;
 }

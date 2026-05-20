@@ -40,6 +40,14 @@ namespace Entry.Data
                 entity.Property(c => c.Price)
                       .HasPrecision(18, 2)
                       .IsRequired();
+                entity.Property(c => c.Mileage).IsRequired();
+                entity.Property(c => c.FuelType).HasMaxLength(30).IsRequired();
+                entity.Property(c => c.BodyType).HasMaxLength(30).IsRequired();
+                entity.Property(c => c.Transmission).HasMaxLength(30).IsRequired();
+                entity.Property(c => c.Engine).HasMaxLength(50).IsRequired();
+                entity.Property(c => c.City).HasMaxLength(50).IsRequired();
+                entity.Property(c => c.Color).HasMaxLength(50);
+                entity.Property(c => c.Description).HasMaxLength(2000);
 
                 entity.HasOne(c => c.User)
                       .WithMany()
@@ -47,6 +55,15 @@ namespace Entry.Data
                       .OnDelete(DeleteBehavior.Cascade);
 
                 entity.HasIndex(c => c.CreatedAt);
+                entity.HasIndex(c => c.Brand);
+                entity.HasIndex(c => c.Model);
+                entity.HasIndex(c => c.City);
+                entity.HasIndex(c => c.FuelType);
+                entity.HasIndex(c => c.BodyType);
+                entity.HasIndex(c => c.Transmission);
+                entity.HasIndex(c => c.Price);
+                entity.HasIndex(c => c.Year);
+                entity.HasIndex(c => c.Mileage);
             });
 
           

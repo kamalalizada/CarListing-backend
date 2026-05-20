@@ -4,7 +4,7 @@ using Minio.DataModel.Args;
 
 namespace Entry.Services;
 
-public sealed class MinioImageStorageService : IImageStorageService
+public sealed class MinioImageStorageService : IImageStorageService, IImageStorageProvisioner
 {
     private readonly IMinioClient _client;
     private readonly MinioOptions _options;
@@ -30,8 +30,6 @@ public sealed class MinioImageStorageService : IImageStorageService
         string? objectKey = null,
         CancellationToken cancellationToken = default)
     {
-        await EnsureBucketAsync(cancellationToken);
-
         var extension = fileExtension.StartsWith('.') ? fileExtension : $".{fileExtension}";
         objectKey ??= $"cars/{carId}/{Guid.NewGuid():N}{extension.ToLowerInvariant()}";
 
@@ -52,8 +50,6 @@ public sealed class MinioImageStorageService : IImageStorageService
         if (string.IsNullOrWhiteSpace(objectKey))
             return;
 
-        await EnsureBucketAsync(cancellationToken);
-
         var removeArgs = new RemoveObjectArgs()
             .WithBucket(_options.BucketName)
             .WithObject(objectKey);
@@ -73,7 +69,7 @@ public sealed class MinioImageStorageService : IImageStorageService
         return imageUrl[(publicBaseUrl.Length + 1)..];
     }
 
-    private async Task EnsureBucketAsync(CancellationToken cancellationToken)
+    public async Task ProvisionAsync(CancellationToken cancellationToken = default)
     {
         var existsArgs = new BucketExistsArgs().WithBucket(_options.BucketName);
         var exists = await _client.BucketExistsAsync(existsArgs, cancellationToken);
@@ -82,6 +78,9 @@ public sealed class MinioImageStorageService : IImageStorageService
             var makeArgs = new MakeBucketArgs().WithBucket(_options.BucketName);
             await _client.MakeBucketAsync(makeArgs, cancellationToken);
         }
+
+        if (!_options.MakeBucketPublic)
+            return;
 
         var policy = $$"""
         {
