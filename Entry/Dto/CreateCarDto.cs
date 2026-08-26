@@ -45,6 +45,11 @@ public class CreateCarDto
     [StringLength(50)]
     public string City { get; set; } = null!;
 
+    [Required]
+    [StringLength(20, MinimumLength = 7)]
+    [RegularExpression(@"^\+?[0-9][0-9\s-]{5,18}$", ErrorMessage = "Telefon nömrəsini düzgün formatda daxil edin.")]
+    public string ContactPhone { get; set; } = null!;
+
     [StringLength(50)]
     public string? Color { get; set; }
 

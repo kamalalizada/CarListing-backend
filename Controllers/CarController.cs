@@ -169,6 +169,7 @@ public class CarsController : ControllerBase
             Transmission = car.Transmission,
             Engine = car.Engine,
             City = car.City,
+            ContactPhone = car.ContactPhone,
             Color = car.Color,
             Description = car.Description,
             UserId = car.UserId,
@@ -220,6 +221,7 @@ public class CarsController : ControllerBase
             Transmission = dto.Transmission.Trim(),
             Engine = dto.Engine.Trim(),
             City = dto.City.Trim(),
+            ContactPhone = NormalizePhone(dto.ContactPhone),
             Color = NormalizeOptional(dto.Color),
             Description = NormalizeOptional(dto.Description),
             UserId = userId,
@@ -423,6 +425,7 @@ public class CarsController : ControllerBase
         car.Transmission = dto.Transmission.Trim();
         car.Engine = dto.Engine.Trim();
         car.City = dto.City.Trim();
+        car.ContactPhone = NormalizePhone(dto.ContactPhone);
         car.Color = NormalizeOptional(dto.Color);
         car.Description = NormalizeOptional(dto.Description);
 
@@ -511,6 +514,11 @@ public class CarsController : ControllerBase
     private static string? NormalizeOptional(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static string NormalizePhone(string value)
+    {
+        return string.Concat(value.Where(c => !char.IsWhiteSpace(c) && c != '-'));
     }
 
     [Authorize]

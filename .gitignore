@@ -361,3 +361,10 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Internal planning and analysis docs (README.md stays tracked)
+BACKEND_FOUNDATION_PLAN.md
+CODE_ANALYSIS.md
+FEATURE_STRATEGY.md
+FIX_TASKS.md
+FRONTEND_API_CONTRACT.md

@@ -21,6 +21,7 @@ public class CarDetailsDto
     public string Transmission { get; set; } = null!;
     public string Engine { get; set; } = null!;
     public string City { get; set; } = null!;
+    public string ContactPhone { get; set; } = null!;
     public string? Color { get; set; }
     public string? Description { get; set; }
 

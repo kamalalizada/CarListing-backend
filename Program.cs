@@ -40,13 +40,15 @@ builder.Services.AddScoped<InactiveCarImageCleanupService>();
 builder.Services.AddScoped<BlockedUserTokenValidator>();
 builder.Services.AddScoped<IAiSearchParserService, RuleBasedAiSearchParserService>();
 
-// CORS (Angular)
+// CORS (local frontend development servers)
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Frontend", policy =>
     {
         policy
-            .WithOrigins("http://localhost:4200")
+            .WithOrigins(
+                "http://localhost:4200",
+                "http://localhost:5173")
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials();

@@ -46,6 +46,7 @@ namespace Entry.Data
                 entity.Property(c => c.Transmission).HasMaxLength(30).IsRequired();
                 entity.Property(c => c.Engine).HasMaxLength(50).IsRequired();
                 entity.Property(c => c.City).HasMaxLength(50).IsRequired();
+                entity.Property(c => c.ContactPhone).HasMaxLength(20).IsRequired();
                 entity.Property(c => c.Color).HasMaxLength(50);
                 entity.Property(c => c.Description).HasMaxLength(2000);
 

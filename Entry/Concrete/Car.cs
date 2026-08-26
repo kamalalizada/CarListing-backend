@@ -13,6 +13,7 @@ public class Car : Base
     public string Transmission { get; set; } = null!;
     public string Engine { get; set; } = null!;
     public string City { get; set; } = null!;
+    public string ContactPhone { get; set; } = string.Empty;
     public string? Color { get; set; }
     public string? Description { get; set; }
     public bool IsActive { get; set; } = true;
