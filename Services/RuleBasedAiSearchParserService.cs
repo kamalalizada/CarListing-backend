@@ -10,7 +10,16 @@ public sealed class RuleBasedAiSearchParserService : IAiSearchParserService
         "Toyota", "Honda", "Mercedes", "BMW", "Hyundai", "Kia", "Nissan", "Ford", "Audi", "Volkswagen"
     ];
 
-    public AiSearchResultDto Parse(AiSearchRequestDto request)
+    public Task<AiSearchResultDto> ParseAsync(
+        AiSearchRequestDto request,
+        CancellationToken ct = default)
+    {
+        return Task.FromResult(Parse(request));
+    }
+
+    /// <summary>Pure, synchronous parse - no I/O, so it stays directly testable
+    /// and can serve as the fallback when the model call fails.</summary>
+    public static AiSearchResultDto Parse(AiSearchRequestDto request)
     {
         var query = request.Query.Trim();
         var normalized = query.ToLowerInvariant();

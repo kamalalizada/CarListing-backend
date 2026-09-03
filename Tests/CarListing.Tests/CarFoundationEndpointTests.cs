@@ -1,4 +1,4 @@
-using Entry.Concrete;
+﻿using Entry.Concrete;
 using Entry.Controllers;
 using Entry.Data;
 using Entry.Dto;
@@ -50,15 +50,15 @@ public class CarFoundationEndpointTests
     }
 
     [Fact]
-    public void ParseAiSearch_ReturnsStructuredFilter()
+    public async Task ParseAiSearch_ReturnsStructuredFilter()
     {
         using var db = CreateDbContext();
         var controller = CreateController(db);
 
-        var result = controller.ParseAiSearch(new AiSearchRequestDto
+        var result = await controller.ParseAiSearch(new AiSearchRequestDto
         {
             Query = "Toyota 18-22 min 2019+ sedan avtomat"
-        });
+        }, CancellationToken.None);
 
         var parsed = AssertOk<AiSearchResultDto>(result);
         Assert.Equal("Toyota", parsed.Filter.Brand);

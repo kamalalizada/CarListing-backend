@@ -138,9 +138,11 @@ public class CarsController : ControllerBase
     }
 
     [HttpPost("ai-search/parse")]
-    public ActionResult<AiSearchResultDto> ParseAiSearch([FromBody] AiSearchRequestDto request)
+    public async Task<ActionResult<AiSearchResultDto>> ParseAiSearch(
+        [FromBody] AiSearchRequestDto request,
+        CancellationToken ct)
     {
-        return Ok(_aiSearchParser.Parse(request));
+        return Ok(await _aiSearchParser.ParseAsync(request, ct));
     }
 
     [HttpGet("{id:int}")]
