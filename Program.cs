@@ -39,6 +39,20 @@ builder.Services.AddScoped<LocalImageMigrationService>();
 builder.Services.AddScoped<InactiveCarImageCleanupService>();
 builder.Services.AddScoped<BlockedUserTokenValidator>();
 
+// Password reset email. Without an SMTP host the link is logged instead (full
+// link in Development only), so the flow works without a mail server.
+builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
+builder.Services.Configure<FrontendOptions>(builder.Configuration.GetSection(FrontendOptions.SectionName));
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<PasswordResetService>();
+builder.Services.AddSingleton<ChannelEmailQueue>();
+builder.Services.AddSingleton<IEmailQueue>(sp => sp.GetRequiredService<ChannelEmailQueue>());
+builder.Services.AddHostedService<EmailDispatchService>();
+if (builder.Configuration.GetSection(SmtpOptions.SectionName).Get<SmtpOptions>()?.IsConfigured == true)
+    builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+else
+    builder.Services.AddScoped<IEmailSender, LoggingEmailSender>();
+
 // AI search. The rule half always runs - it is free, instant, and better than
 // the parser it replaced. The model is added only when a key exists, because a
 // missing key is a deployment choice (local dev, CI), not a runtime error.
@@ -130,6 +144,11 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "CarListing API", Version = "v1" });
+
+    // Endpoint summaries and response descriptions from the controllers' XML comments.
+    var xmlDocs = Path.Combine(AppContext.BaseDirectory, "wCarListing.xml");
+    if (File.Exists(xmlDocs))
+        c.IncludeXmlComments(xmlDocs);
 
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {

@@ -13,6 +13,9 @@ public sealed class CarListingApiFactory : WebApplicationFactory<Program>
 {
     private readonly string _databaseName = Guid.NewGuid().ToString("N");
 
+    /// <summary>Runs after the app's own registrations, so it can replace services.</summary>
+    public Action<IServiceCollection>? OverrideServices { get; init; }
+
     public CarListingApiFactory()
     {
         Environment.SetEnvironmentVariable("Startup__SkipTasks", "true");
@@ -55,6 +58,7 @@ public sealed class CarListingApiFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<DbContextOptions<AppDbContext>>();
             services.AddDbContext<AppDbContext>(options => options.UseInMemoryDatabase(_databaseName));
+            OverrideServices?.Invoke(services);
         });
     }
 

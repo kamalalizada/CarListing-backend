@@ -18,7 +18,9 @@ public sealed class InactiveCarImageCleanupService
     {
         var images = await _db.CarImages
             .Include(i => i.Car)
-            .Where(i => !i.Car.IsActive)
+            // Deleted cars only. A deactivated car can be re-activated by an
+            // admin, and its photos must still be there when it is.
+            .Where(i => i.Car.DeletedAt != null)
             .ToListAsync(cancellationToken);
 
         foreach (var image in images)

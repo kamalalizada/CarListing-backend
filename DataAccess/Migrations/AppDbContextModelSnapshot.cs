@@ -45,16 +45,19 @@ namespace DataAccess.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<string>("Color")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
                     b.Property<string>("ContactPhone")
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
-                    b.Property<string>("Color")
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
                     b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("datetime2");
 
                     b.Property<string>("Description")
@@ -122,9 +125,9 @@ namespace DataAccess.Migrations
 
                     b.HasIndex("Transmission");
 
-                    b.HasIndex("UserId");
-
                     b.HasIndex("Year");
+
+                    b.HasIndex("UserId", "DeletedAt", "CreatedAt");
 
                     b.ToTable("Cars");
                 });
@@ -194,6 +197,41 @@ namespace DataAccess.Migrations
                     b.HasIndex("CarId");
 
                     b.ToTable("CarImages");
+                });
+
+            modelBuilder.Entity("Entry.Concrete.PasswordResetToken", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .IsConcurrencyToken()
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "CreatedAt");
+
+                    b.HasIndex("UserId", "TokenHash");
+
+                    b.ToTable("PasswordResetTokens");
                 });
 
             modelBuilder.Entity("Entry.Concrete.User", b =>
@@ -271,6 +309,17 @@ namespace DataAccess.Migrations
                         .IsRequired();
 
                     b.Navigation("Car");
+                });
+
+            modelBuilder.Entity("Entry.Concrete.PasswordResetToken", b =>
+                {
+                    b.HasOne("Entry.Concrete.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Entry.Concrete.Car", b =>

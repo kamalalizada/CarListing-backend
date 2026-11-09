@@ -24,10 +24,11 @@ public class AdminController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>Deactivates or re-activates a listing. Deleted listings are 404: this never undeletes.</summary>
     [HttpPut("cars/{id:int}/active")]
     public async Task<IActionResult> SetCarActive(int id, [FromQuery] bool active = true)
     {
-        var car = await _db.Cars.FirstOrDefaultAsync(x => x.Id == id);
+        var car = await _db.Cars.FirstOrDefaultAsync(x => x.Id == id && x.DeletedAt == null);
         if (car is null) return NotFound("Elan tapılmadı.");
 
         car.IsActive = active;
@@ -62,6 +63,7 @@ public class AdminController : ControllerBase
                 x.Color,
                 x.UserId,
                 x.IsActive,
+                x.DeletedAt,
                 x.CreatedAt
             })
             .ToListAsync();

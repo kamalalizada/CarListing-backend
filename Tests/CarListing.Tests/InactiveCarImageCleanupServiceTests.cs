@@ -8,7 +8,7 @@ namespace CarListing.Tests;
 public class InactiveCarImageCleanupServiceTests
 {
     [Fact]
-    public async Task PurgeAsync_DeletesImagesForInactiveCarsOnly()
+    public async Task PurgeAsync_DeletesImagesForDeletedCarsOnly()
     {
         await using var db = CreateDbContext();
         await SeedCarsWithImages(db);
@@ -21,6 +21,8 @@ public class InactiveCarImageCleanupServiceTests
         Assert.Equal(["inactive-key"], imageStorage.DeletedObjectKeys);
         Assert.DoesNotContain(await db.CarImages.ToListAsync(), i => i.ObjectKey == "inactive-key");
         Assert.Contains(await db.CarImages.ToListAsync(), i => i.ObjectKey == "active-key");
+        // Deactivated is reversible by an admin, so its photos must survive.
+        Assert.Contains(await db.CarImages.ToListAsync(), i => i.ObjectKey == "deactivated-key");
     }
 
     [Fact]
@@ -73,6 +75,7 @@ public class InactiveCarImageCleanupServiceTests
                 City = "Baku",
                 UserId = 1,
                 IsActive = false,
+                DeletedAt = DateTime.UtcNow,
                 Images =
                 [
                     new CarImage
@@ -106,6 +109,32 @@ public class InactiveCarImageCleanupServiceTests
                         Id = 2,
                         ImageUrl = "https://test.local/active.jpg",
                         ObjectKey = "active-key"
+                    }
+                ]
+            },
+            new Car
+            {
+                Id = 3,
+                Title = "Deactivated",
+                Brand = "Kia",
+                Model = "Rio",
+                Year = 2019,
+                Price = 9_000,
+                Mileage = 90_000,
+                FuelType = "Petrol",
+                BodyType = "Sedan",
+                Transmission = "Manual",
+                Engine = "1.4",
+                City = "Baku",
+                UserId = 1,
+                IsActive = false,
+                Images =
+                [
+                    new CarImage
+                    {
+                        Id = 3,
+                        ImageUrl = "https://test.local/deactivated.jpg",
+                        ObjectKey = "deactivated-key"
                     }
                 ]
             });

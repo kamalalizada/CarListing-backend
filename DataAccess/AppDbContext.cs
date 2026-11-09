@@ -13,6 +13,7 @@ namespace Entry.Data
         public DbSet<Car> Cars => Set<Car>();
         public DbSet<CarImage> CarImages => Set<CarImage>();
         public DbSet<CarFeature> CarFeatures => Set<CarFeature>();
+        public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -65,6 +66,29 @@ namespace Entry.Data
                 entity.HasIndex(c => c.Price);
                 entity.HasIndex(c => c.Year);
                 entity.HasIndex(c => c.Mileage);
+
+                // GET /api/cars/mine: a user's non-deleted cars, newest first.
+                entity.HasIndex(c => new { c.UserId, c.DeletedAt, c.CreatedAt });
+            });
+
+            modelBuilder.Entity<PasswordResetToken>(entity =>
+            {
+                entity.HasKey(t => t.Id);
+                entity.Property(t => t.TokenHash).HasMaxLength(64).IsRequired();
+
+                // Two requests racing to use the same token: the UPDATE includes
+                // "UsedAt IS NULL", so the second one fails instead of resetting
+                // the password a second time.
+                entity.Property(t => t.UsedAt).IsConcurrencyToken();
+
+                entity.HasOne(t => t.User)
+                      .WithMany()
+                      .HasForeignKey(t => t.UserId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                // Lookup on reset, and the per-user hourly count for rate limiting.
+                entity.HasIndex(t => new { t.UserId, t.TokenHash });
+                entity.HasIndex(t => new { t.UserId, t.CreatedAt });
             });
 
           

@@ -214,12 +214,13 @@ public class CarsController : ControllerBase
             .Include(x => x.Features)
             .FirstOrDefaultAsync(x => x.Id == id);
 
-        if (car is null) return NotFound();
+        // A deleted listing is gone for everyone, owner and admins included.
+        if (car is null || car.DeletedAt is not null) return NotFound();
 
-        // An inactive listing (admin-deactivated or soft-deleted) is hidden from
-        // the public as if it did not exist; only its owner and admins see it.
-        // The endpoint is anonymous, but the default JWT scheme still populates
-        // User when a valid token is sent.
+        // A deactivated listing is hidden from the public as if it did not
+        // exist; only its owner and admins see it, so the owner can tell why it
+        // is not public. The endpoint is anonymous, but the default JWT scheme
+        // still populates User when a valid token is sent.
         if (!car.IsActive && !CanManage(car))
             return NotFound();
 
@@ -309,16 +310,113 @@ public class CarsController : ControllerBase
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id)
     {
-        var car = await _db.Cars.FirstOrDefaultAsync(x => x.Id == id && x.IsActive);
+        // A deactivated car can still be deleted: its owner sees it under
+        // /mine and must be able to remove it.
+        var car = await _db.Cars.FirstOrDefaultAsync(x => x.Id == id && x.DeletedAt == null);
         if (car is null) return NotFound();
 
         var userId = User.GetUserId();
         if (!User.IsInRole("Admin") && car.UserId != userId)
             return Forbid();
 
-        car.IsActive = false; // soft delete
+        // Soft delete, recorded as a deletion rather than a deactivation.
+        car.DeletedAt = DateTime.UtcNow;
+        car.IsActive = false;
         await _db.SaveChangesAsync();
         return NoContent();
+    }
+
+    public const string InvalidStatusMessage = "Status yalnız Active və ya Deactivated ola bilər.";
+
+    /// <summary>
+    /// The caller's own listings, newest first, including ones an admin deactivated.
+    /// </summary>
+    /// <remarks>
+    /// Deleted listings never appear. Each item has the fields of a GET /api/cars
+    /// item plus status: "Active" or "Deactivated".
+    /// </remarks>
+    /// <param name="page">1-based page. Default 1.</param>
+    /// <param name="pageSize">Default 20, at most 50 (larger values are capped).</param>
+    /// <param name="status">Optional filter: Active or Deactivated (case-insensitive).</param>
+    /// <response code="200">{ total, page, pageSize, items }.</response>
+    /// <response code="400">Unknown status: { message }.</response>
+    /// <response code="401">No or invalid token.</response>
+    [Authorize]
+    [HttpGet("mine")]
+    [ProducesResponseType(typeof(PagedResultDto<MyCarListItemDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(MessageResponseDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<PagedResultDto<MyCarListItemDto>>> GetMine(
+        [FromQuery] int? page,
+        [FromQuery] int? pageSize,
+        [FromQuery] string? status,
+        CancellationToken ct)
+    {
+        var currentPage = page is > 0 ? page.Value : 1;
+        var size = pageSize is > 0 ? Math.Min(pageSize.Value, 50) : 20;
+
+        var userId = User.GetUserId();
+        var query = _db.Cars
+            .AsNoTracking()
+            .Where(c => c.UserId == userId && c.DeletedAt == null);
+
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            var s = status.Trim();
+            if (s.Equals(CarListingStatus.Active, StringComparison.OrdinalIgnoreCase))
+                query = query.Where(c => c.IsActive);
+            else if (s.Equals(CarListingStatus.Deactivated, StringComparison.OrdinalIgnoreCase))
+                query = query.Where(c => !c.IsActive);
+            else
+                return BadRequest(new MessageResponseDto(InvalidStatusMessage));
+        }
+
+        var total = await query.CountAsync(ct);
+
+        var items = await query
+            .OrderByDescending(c => c.CreatedAt)
+            .ThenByDescending(c => c.Id)
+            .Skip((currentPage - 1) * size)
+            .Take(size)
+            .Select(c => new MyCarListItemDto
+            {
+                Id = c.Id,
+                CreatedAt = c.CreatedAt,
+                Title = c.Title,
+                Brand = c.Brand,
+                Model = c.Model,
+                Year = c.Year,
+                Price = c.Price,
+                Mileage = c.Mileage,
+                FuelType = c.FuelType,
+                BodyType = c.BodyType,
+                Transmission = c.Transmission,
+                Engine = c.Engine,
+                City = c.City,
+                Color = c.Color,
+                MainImageUrl = c.Images
+                    .OrderByDescending(i => i.IsMain)
+                    .ThenBy(i => i.Order)
+                    .ThenBy(i => i.Id)
+                    .Select(i => i.ImageUrl)
+                    .FirstOrDefault(),
+                Features = c.Features.Select(f => new CarFeatureDto
+                {
+                    Id = f.Id,
+                    Key = f.Key,
+                    Value = f.Value
+                }).ToList(),
+                Status = c.IsActive ? CarListingStatus.Active : CarListingStatus.Deactivated,
+            })
+            .ToListAsync(ct);
+
+        return Ok(new PagedResultDto<MyCarListItemDto>
+        {
+            Total = total,
+            Page = currentPage,
+            PageSize = size,
+            Items = items
+        });
     }
 
     [Authorize]

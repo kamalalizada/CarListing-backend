@@ -13,7 +13,8 @@ public class RegisterDto
     [StringLength(100)]
     public string Email { get; set; } = null!;
 
-    [Required]
-    [StringLength(100, MinimumLength = 6)]
+    /// <summary>See <see cref="PasswordRules"/>: 6-100 characters, not blank.</summary>
+    [Required(ErrorMessage = PasswordRules.RequiredMessage)]
+    [Password]
     public string Password { get; set; } = null!;
 }
