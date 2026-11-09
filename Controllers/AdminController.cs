@@ -1,5 +1,6 @@
 ﻿using Entry.Data;
 using Entry.Dto;
+using Entry.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,9 +15,32 @@ public class AdminController : ControllerBase
     private readonly AppDbContext _db;
     public AdminController(AppDbContext db) => _db = db;
 
+    public const string CannotBlockSelfMessage = "Öz hesabınızı bloklaya bilməzsiniz.";
+
+    /// <summary>Blocks or unblocks a user.</summary>
+    /// <remarks>
+    /// An admin cannot block their own account: the token check rejects
+    /// blocked users, so it would lock them out of the admin panel at once.
+    /// Unblocking yourself is allowed.
+    /// </remarks>
+    /// <param name="id">The user to change.</param>
+    /// <param name="block">true to block (default), false to unblock.</param>
+    /// <response code="204">Done.</response>
+    /// <response code="400">block=true on your own account: { message }. Nothing is changed.</response>
+    /// <response code="401">No or invalid token.</response>
+    /// <response code="403">Not an admin.</response>
+    /// <response code="404">No such user.</response>
     [HttpPut("users/{id:int}/block")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(MessageResponseDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> BlockUser(int id, [FromQuery] bool block = true)
     {
+        if (block && id == User.GetUserId())
+            return BadRequest(new MessageResponseDto(CannotBlockSelfMessage));
+
         var user = await _db.Users.FirstOrDefaultAsync(x => x.Id == id);
         if (user is null) return NotFound("User tapılmadı.");
 
