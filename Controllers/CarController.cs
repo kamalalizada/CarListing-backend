@@ -34,8 +34,6 @@ public class CarsController : ControllerBase
         var query = _db.Cars
             .AsNoTracking()
             .Where(x => x.IsActive)
-            .Include(x => x.Images)
-            .Include(x => x.Features)
             .AsQueryable();
 
         query = ApplyFilters(query, filter);
@@ -62,6 +60,14 @@ public class CarsController : ControllerBase
                 Engine = x.Engine,
                 City = x.City,
                 Color = x.Color,
+                // Translated to a correlated subquery inside this one SELECT,
+                // so a page of cards costs one round trip, not one per card.
+                MainImageUrl = x.Images
+                    .OrderByDescending(i => i.IsMain)
+                    .ThenBy(i => i.Order)
+                    .ThenBy(i => i.Id)
+                    .Select(i => i.ImageUrl)
+                    .FirstOrDefault(),
                 Features = x.Features.Select(f => new CarFeatureDto
                 {
                     Id = f.Id,
@@ -80,15 +86,64 @@ public class CarsController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// The values a filter panel can offer, read from the live listings.
+    /// </summary>
+    /// <remarks>
+    /// Read from the data rather than hard-coded: a dropdown offering a brand
+    /// nobody has listed sends the buyer to an empty page, and a fixed list
+    /// goes stale the first time someone posts something new. Only active
+    /// listings count, for the same reason.
+    /// </remarks>
     [HttpGet("metadata")]
-    public ActionResult<CarMetadataDto> GetMetadata()
+    public async Task<ActionResult<CarMetadataDto>> GetMetadata(CancellationToken ct)
     {
+        // One pass over the columns that feed the dropdowns, rather than a
+        // query per list.
+        var rows = await _db.Cars
+            .AsNoTracking()
+            .Where(c => c.IsActive)
+            .Select(c => new
+            {
+                c.Brand,
+                c.Model,
+                c.City,
+                c.FuelType,
+                c.BodyType,
+                c.Transmission,
+            })
+            .ToListAsync(ct);
+
+        static List<string> Sorted(IEnumerable<string?> values) => values
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(v => v, StringComparer.CurrentCulture)
+            .ToList();
+
         return Ok(new CarMetadataDto
         {
-            FuelTypes = ["Petrol", "Diesel", "Hybrid", "Electric"],
-            BodyTypes = ["Sedan", "SUV", "Hatchback", "Coupe", "Wagon", "Minivan", "Pickup"],
-            Transmissions = ["Automatic", "Manual"],
-            SortOptions = ["newest", "price", "year", "mileage"]
+            Brands = Sorted(rows.Select(r => r.Brand)),
+            Models = Sorted(rows.Select(r => r.Model)),
+
+            // Grouped so the panel can narrow the model dropdown once a brand
+            // is chosen; a flat list would put Sonata under BMW.
+            ModelsByBrand = rows
+                .Where(r => !string.IsNullOrWhiteSpace(r.Brand) && !string.IsNullOrWhiteSpace(r.Model))
+                .GroupBy(r => r.Brand.Trim(), StringComparer.OrdinalIgnoreCase)
+                .OrderBy(g => g.Key, StringComparer.CurrentCulture)
+                .ToDictionary(
+                    g => g.Key,
+                    g => Sorted(g.Select(r => r.Model)),
+                    StringComparer.OrdinalIgnoreCase),
+
+            Cities = Sorted(rows.Select(r => r.City)),
+            FuelTypes = Sorted(rows.Select(r => r.FuelType)),
+            BodyTypes = Sorted(rows.Select(r => r.BodyType)),
+            Transmissions = Sorted(rows.Select(r => r.Transmission)),
+
+            // Not data: these are the values the listing endpoint accepts.
+            SortFields = ["newest", "price", "year", "mileage"],
         });
     }
 
@@ -102,7 +157,6 @@ public class CarsController : ControllerBase
         var items = await _db.Cars
             .AsNoTracking()
             .Where(c => c.IsActive && distinctIds.Contains(c.Id))
-            .Include(c => c.Features)
             .Select(c => new CarCompareItemDto
             {
                 Id = c.Id,
@@ -118,6 +172,12 @@ public class CarsController : ControllerBase
                 Engine = c.Engine,
                 City = c.City,
                 Color = c.Color,
+                MainImageUrl = c.Images
+                    .OrderByDescending(i => i.IsMain)
+                    .ThenBy(i => i.Order)
+                    .ThenBy(i => i.Id)
+                    .Select(i => i.ImageUrl)
+                    .FirstOrDefault(),
                 Features = c.Features.Select(f => new CarFeatureDto
                 {
                     Id = f.Id,
@@ -152,9 +212,16 @@ public class CarsController : ControllerBase
             .AsNoTracking()
             .Include(x => x.Images)
             .Include(x => x.Features)
-            .FirstOrDefaultAsync(x => x.Id == id && x.IsActive);
+            .FirstOrDefaultAsync(x => x.Id == id);
 
         if (car is null) return NotFound();
+
+        // An inactive listing (admin-deactivated or soft-deleted) is hidden from
+        // the public as if it did not exist; only its owner and admins see it.
+        // The endpoint is anonymous, but the default JWT scheme still populates
+        // User when a valid token is sent.
+        if (!car.IsActive && !CanManage(car))
+            return NotFound();
 
         var dto = new CarDetailsDto
         {
@@ -175,6 +242,7 @@ public class CarsController : ControllerBase
             Color = car.Color,
             Description = car.Description,
             UserId = car.UserId,
+            IsActive = car.IsActive,
             Images = car.Images.OrderBy(i => i.Order).Select(i => new CarImageDto
             {
                 Id = i.Id,
@@ -511,6 +579,22 @@ public class CarsController : ControllerBase
             "mileage" => descending ? query.OrderByDescending(x => x.Mileage) : query.OrderBy(x => x.Mileage),
             _ => query.OrderByDescending(x => x.CreatedAt)
         };
+    }
+
+    /// <summary>True when the caller is signed in and is the car's owner or an admin.</summary>
+    private bool CanManage(Car car)
+    {
+        if (User.Identity?.IsAuthenticated != true) return false;
+        if (User.IsInRole("Admin")) return true;
+
+        try
+        {
+            return User.GetUserId() == car.UserId;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     private static string? NormalizeOptional(string? value)

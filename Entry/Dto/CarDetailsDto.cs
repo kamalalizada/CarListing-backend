@@ -27,6 +27,9 @@ public class CarDetailsDto
 
     public int UserId { get; set; }
 
+    /// <summary>False only when shown to the owner or an admin; everyone else gets 404.</summary>
+    public bool IsActive { get; set; }
+
     public List<CarImageDto> Images { get; set; } = new();
     public List<CarFeatureDto> Features { get; set; } = new();
 }

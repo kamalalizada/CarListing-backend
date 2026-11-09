@@ -23,7 +23,13 @@ public class TokenService
 
         var claims = new List<Claim>
         {
-            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()), 
+            // The frontend reads "sub", which the token did not carry before, so
+            // emit it with the same value as Car.UserId (User.Id). NameIdentifier
+            // stays for backward compatibility; it is written under its full URI
+            // because this JwtSecurityToken constructor applies no short-name map.
+            // On the way in, "sub" also maps to ClaimTypes.NameIdentifier.
+            new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim(ClaimTypes.Name, user.Username),
             new Claim(ClaimTypes.Role, user.Role)
         };

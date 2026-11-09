@@ -34,6 +34,7 @@ public sealed class DbSearchVocabularyProvider : ISearchVocabularyProvider
         var vocabulary = new SearchVocabulary(
             Brands: await DistinctAsync(c => c.Brand, ct),
             FuelTypes: await DistinctAsync(c => c.FuelType, ct),
+            Models: await DistinctAsync(c => c.Model, ct),
             BodyTypes: await DistinctAsync(c => c.BodyType, ct),
             Transmissions: await DistinctAsync(c => c.Transmission, ct),
             Cities: await DistinctAsync(c => c.City, ct));

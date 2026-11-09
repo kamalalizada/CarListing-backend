@@ -14,6 +14,7 @@ namespace Entry.Services;
 /// </remarks>
 public sealed record SearchVocabulary(
     IReadOnlyList<string> Brands,
+    IReadOnlyList<string> Models,
     IReadOnlyList<string> FuelTypes,
     IReadOnlyList<string> BodyTypes,
     IReadOnlyList<string> Transmissions,

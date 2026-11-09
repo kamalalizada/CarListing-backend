@@ -11,18 +11,82 @@ namespace CarListing.Tests;
 public class CarFoundationEndpointTests
 {
     [Fact]
-    public void GetMetadata_ReturnsFrontendValueLists()
+    public async Task GetMetadata_ReturnsValuesTheListingsActuallyContain()
     {
-        using var db = CreateDbContext();
+        await using var db = CreateDbContext();
+        await SeedCars(db);
         var controller = CreateController(db);
 
-        var result = controller.GetMetadata();
+        var result = await controller.GetMetadata(CancellationToken.None);
 
         var metadata = AssertOk<CarMetadataDto>(result);
-        Assert.Contains("Petrol", metadata.FuelTypes);
-        Assert.Contains("SUV", metadata.BodyTypes);
-        Assert.Contains("Automatic", metadata.Transmissions);
-        Assert.Contains("mileage", metadata.SortOptions);
+        Assert.Equal(["Toyota"], metadata.Brands);
+        Assert.Equal(["Camry", "RAV4"], metadata.Models);
+        Assert.Equal(["Baku"], metadata.Cities);
+        Assert.Equal(["Hybrid", "Petrol"], metadata.FuelTypes);
+        Assert.Equal(["Sedan", "SUV"], metadata.BodyTypes);
+        Assert.Equal(["Automatic"], metadata.Transmissions);
+        Assert.Contains("mileage", metadata.SortFields);
+    }
+
+    [Fact]
+    public async Task GetMetadata_GroupsModelsUnderTheirBrand()
+    {
+        await using var db = CreateDbContext();
+        await SeedCars(db);
+        var controller = CreateController(db);
+
+        var result = await controller.GetMetadata(CancellationToken.None);
+
+        var metadata = AssertOk<CarMetadataDto>(result);
+        Assert.Equal(["Camry", "RAV4"], metadata.ModelsByBrand["Toyota"]);
+    }
+
+    [Fact]
+    public async Task GetMetadata_LeavesOutInactiveListings()
+    {
+        // An inactive car is not for sale, so offering its brand sends the
+        // buyer to an empty result page.
+        await using var db = CreateDbContext();
+        await SeedCars(db);
+        db.Cars.Add(new Car
+        {
+            Id = 99,
+            Title = "Hidden",
+            Brand = "Ferrari",
+            Model = "F40",
+            Year = 1990,
+            Price = 1_000_000,
+            Mileage = 1_000,
+            FuelType = "Petrol",
+            BodyType = "Coupe",
+            Transmission = "Manual",
+            Engine = "2.9",
+            City = "Baku",
+            UserId = 1,
+            IsActive = false,
+        });
+        await db.SaveChangesAsync();
+        var controller = CreateController(db);
+
+        var result = await controller.GetMetadata(CancellationToken.None);
+
+        var metadata = AssertOk<CarMetadataDto>(result);
+        Assert.DoesNotContain("Ferrari", metadata.Brands);
+        Assert.DoesNotContain("Coupe", metadata.BodyTypes);
+    }
+
+    [Fact]
+    public async Task GetMetadata_StillAnswersTheOldSortOptionsName()
+    {
+        // Clients written against the previous contract must keep working.
+        await using var db = CreateDbContext();
+        var controller = CreateController(db);
+
+        var result = await controller.GetMetadata(CancellationToken.None);
+
+        var metadata = AssertOk<CarMetadataDto>(result);
+        Assert.Equal(metadata.SortFields, metadata.SortOptions);
     }
 
     [Fact]
@@ -66,7 +130,7 @@ public class CarFoundationEndpointTests
         Assert.Equal(22_000, parsed.Filter.PriceMax);
         Assert.Equal(2019, parsed.Filter.YearMin);
         Assert.Equal("Sedan", parsed.Filter.BodyType);
-        Assert.Equal("Automatic", parsed.Filter.Transmission);
+        Assert.Equal("Avtomat", parsed.Filter.Transmission);
     }
 
     private static AppDbContext CreateDbContext()

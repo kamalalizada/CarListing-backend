@@ -38,7 +38,45 @@ builder.Services.AddScoped<IImageStorageProvisioner>(sp => sp.GetRequiredService
 builder.Services.AddScoped<LocalImageMigrationService>();
 builder.Services.AddScoped<InactiveCarImageCleanupService>();
 builder.Services.AddScoped<BlockedUserTokenValidator>();
-builder.Services.AddScoped<IAiSearchParserService, RuleBasedAiSearchParserService>();
+
+// AI search. The rule half always runs - it is free, instant, and better than
+// the parser it replaced. The model is added only when a key exists, because a
+// missing key is a deployment choice (local dev, CI), not a runtime error.
+builder.Services.Configure<AiSearchOptions>(
+    builder.Configuration.GetSection(AiSearchOptions.SectionName));
+builder.Services.AddMemoryCache();
+builder.Services.AddScoped<ISearchVocabularyProvider, DbSearchVocabularyProvider>();
+builder.Services.AddScoped<IAiSearchParserService, HybridAiSearchParserService>();
+
+var aiSearchEnabled = builder.Configuration.GetValue(
+    $"{AiSearchOptions.SectionName}:Enabled", true);
+var ollamaBaseUrl = builder.Configuration[
+    $"{AiSearchOptions.SectionName}:OllamaBaseUrl"];
+var geminiApiKey = builder.Configuration["GEMINI_API_KEY"];
+
+// Whichever model is configured is registered behind IModelSearchParser, so
+// the hybrid escalates to "a model" rather than to a particular vendor. Ollama
+// wins when both are present: it is local, free and unmetered, and it is only
+// ever configured on a developer's own machine.
+if (aiSearchEnabled && !string.IsNullOrWhiteSpace(ollamaBaseUrl))
+{
+    builder.Services.AddHttpClient<IModelSearchParser, OllamaAiSearchParserService>(http =>
+    {
+        http.BaseAddress = new Uri(ollamaBaseUrl);
+
+        // A 7B model on CPU is slow, but a buyer is watching a spinner. Past
+        // this the rule parser answers instead.
+        http.Timeout = TimeSpan.FromSeconds(
+            builder.Configuration.GetValue($"{AiSearchOptions.SectionName}:TimeoutSeconds", 10));
+    });
+}
+else if (aiSearchEnabled && !string.IsNullOrWhiteSpace(geminiApiKey))
+{
+    // One client per process: it owns an HttpClient, and a new one per request
+    // would exhaust sockets under load.
+    builder.Services.AddSingleton(new Google.GenAI.Client(apiKey: geminiApiKey));
+    builder.Services.AddScoped<IModelSearchParser, GeminiAiSearchParserService>();
+}
 
 // CORS (local frontend development servers)
 builder.Services.AddCors(options =>

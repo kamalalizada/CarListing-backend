@@ -7,7 +7,8 @@ public sealed class RuleBasedAiSearchParserService : IAiSearchParserService
 {
     private static readonly string[] KnownBrands =
     [
-        "Toyota", "Honda", "Mercedes", "BMW", "Hyundai", "Kia", "Nissan", "Ford", "Audi", "Volkswagen"
+        "Toyota", "Honda", "Mercedes-Benz", "BMW", "Hyundai", "Kia", "Nissan", "Ford", "Audi",
+        "Volkswagen", "Chevrolet", "Opel", "Lada"
     ];
 
     public Task<AiSearchResultDto> ParseAsync(
@@ -30,17 +31,16 @@ public sealed class RuleBasedAiSearchParserService : IAiSearchParserService
             SortDirection = "desc"
         };
 
-        var notes = new List<string>
-        {
-            "Rule-based parser MVP işləyir. Sonra bunu AI parser ilə əvəz etmək olar."
-        };
+        // Notes reach the buyer, so they carry only what was understood -
+        // never a remark about which parser ran.
+        var notes = new List<string>();
 
         foreach (var brand in KnownBrands)
         {
             if (normalized.Contains(brand.ToLowerInvariant()))
             {
                 filter.Brand = brand;
-                notes.Add($"Brand tapıldı: {brand}.");
+                notes.Add($"Brend: {brand}");
                 break;
             }
         }
@@ -50,36 +50,49 @@ public sealed class RuleBasedAiSearchParserService : IAiSearchParserService
         {
             filter.PriceMin = ToMoney(priceRange.Groups["min"].Value);
             filter.PriceMax = ToMoney(priceRange.Groups["max"].Value);
-            notes.Add("Qiymət aralığı tapıldı.");
+            notes.Add($"Qiymət: {filter.PriceMin:0}-{filter.PriceMax:0} AZN");
         }
 
         var yearMin = Regex.Match(normalized, @"(?<year>20\d{2}|19\d{2})\s*(\+|dən yuxarı|den yuxari|sonra)");
         if (yearMin.Success)
         {
             filter.YearMin = int.Parse(yearMin.Groups["year"].Value);
-            notes.Add("Minimum il tapıldı.");
+            notes.Add($"İl: {filter.YearMin}-dən yuxarı");
         }
 
+        // The user may type either language, but the value written into the
+        // filter has to be the one the listings actually store, which is
+        // Azerbaijani. Anything else silently matches no rows.
         if (normalized.Contains("sedan"))
             filter.BodyType = "Sedan";
-        else if (normalized.Contains("suv") || normalized.Contains("crossover"))
+        else if (normalized.Contains("suv") || normalized.Contains("krossover") || normalized.Contains("crossover"))
             filter.BodyType = "SUV";
-        else if (normalized.Contains("hetçbek") || normalized.Contains("hatchback"))
-            filter.BodyType = "Hatchback";
+        else if (normalized.Contains("hetçbek") || normalized.Contains("hetcbek") || normalized.Contains("hatchback"))
+            filter.BodyType = "Hetçbek";
+        else if (normalized.Contains("kupe") || normalized.Contains("coupe"))
+            filter.BodyType = "Kupe";
+        else if (normalized.Contains("universal") || normalized.Contains("wagon"))
+            filter.BodyType = "Universal";
+        else if (normalized.Contains("miniven") || normalized.Contains("minivan"))
+            filter.BodyType = "Miniven";
+        else if (normalized.Contains("pikap") || normalized.Contains("pickup"))
+            filter.BodyType = "Pikap";
 
         if (normalized.Contains("avtomat") || normalized.Contains("automatic"))
-            filter.Transmission = "Automatic";
-        else if (normalized.Contains("mexanika") || normalized.Contains("manual"))
-            filter.Transmission = "Manual";
+            filter.Transmission = "Avtomat";
+        else if (normalized.Contains("variator"))
+            filter.Transmission = "Variator";
+        else if (normalized.Contains("mexanik") || normalized.Contains("manual"))
+            filter.Transmission = "Mexaniki";
 
         if (normalized.Contains("benzin") || normalized.Contains("petrol"))
-            filter.FuelType = "Petrol";
+            filter.FuelType = "Benzin";
         else if (normalized.Contains("dizel") || normalized.Contains("diesel"))
-            filter.FuelType = "Diesel";
-        else if (normalized.Contains("hybrid") || normalized.Contains("hibrid"))
-            filter.FuelType = "Hybrid";
+            filter.FuelType = "Dizel";
+        else if (normalized.Contains("hibrid") || normalized.Contains("hybrid"))
+            filter.FuelType = "Hibrid";
         else if (normalized.Contains("elektrik") || normalized.Contains("electric"))
-            filter.FuelType = "Electric";
+            filter.FuelType = "Elektrik";
 
         return new AiSearchResultDto
         {

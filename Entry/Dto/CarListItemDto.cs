@@ -22,5 +22,8 @@ public class CarListItemDto
     public string? Color { get; set; }
     public DateTime CreatedAt { get; set; }
 
+    /// <summary>The main image, else the first by order, else null.</summary>
+    public string? MainImageUrl { get; set; }
+
     public List<CarFeatureDto> Features { get; set; } = new();
 }

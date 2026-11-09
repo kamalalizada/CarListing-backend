@@ -15,5 +15,8 @@ public class CarCompareItemDto
     public string Engine { get; set; } = null!;
     public string City { get; set; } = null!;
     public string? Color { get; set; }
+
+    /// <summary>The main image, else the first by order, else null.</summary>
+    public string? MainImageUrl { get; set; }
     public List<CarFeatureDto> Features { get; set; } = new();
 }
